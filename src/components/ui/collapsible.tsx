@@ -19,10 +19,11 @@ export function Collapsible({ children, title }: PropsWithChildren & { title: st
         onPress={() => setIsOpen((value) => !value)}>
         <ThemedView type="backgroundElement" style={styles.button}>
           <SymbolView
-            name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+            name="chevron.right"
             size={14}
             weight="bold"
             tintColor={theme.text}
+            fallback={<ThemedText type="smallBold">›</ThemedText>}
             style={{ transform: [{ rotate: isOpen ? '-90deg' : '90deg' }] }}
           />
         </ThemedView>
