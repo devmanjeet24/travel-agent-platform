@@ -1,4 +1,7 @@
-import { Pressable, Text, type PressableProps } from 'react-native'
+import { Pressable, Text, type PressableProps, type ViewStyle } from 'react-native'
+
+import { brand } from '@/constants/design'
+import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger'
 
@@ -10,18 +13,18 @@ interface Props extends PressableProps {
 }
 
 const variantClasses: Record<Variant, string> = {
-  primary: 'bg-sky-500 active:bg-sky-600',
-  secondary: 'bg-violet-600 active:bg-violet-700',
-  outline: 'bg-transparent border-2 border-sky-500',
-  ghost: 'bg-transparent',
-  danger: 'bg-red-500 active:bg-red-600',
+  primary: 'active:opacity-90',
+  secondary: 'active:opacity-90',
+  outline: 'border-2',
+  ghost: '',
+  danger: 'active:opacity-90',
 }
 
 const textClasses: Record<Variant, string> = {
   primary: 'text-white',
   secondary: 'text-white',
-  outline: 'text-sky-500',
-  ghost: 'text-sky-500',
+  outline: '',
+  ghost: '',
   danger: 'text-white',
 }
 
@@ -31,21 +34,54 @@ const sizeClasses = {
   lg: 'py-4 px-6',
 }
 
+function variantStyle(
+  variant: Variant,
+  colors: ReturnType<typeof useThemedStyles>['colors'],
+): ViewStyle {
+  switch (variant) {
+    case 'primary':
+      return { backgroundColor: colors.primaryDark }
+    case 'secondary':
+      return { backgroundColor: colors.accent }
+    case 'outline':
+      return {
+        backgroundColor: 'transparent',
+        borderColor: colors.primaryDark,
+      }
+    case 'ghost':
+      return { backgroundColor: 'transparent' }
+    case 'danger':
+      return { backgroundColor: brand.danger }
+  }
+}
+
+function variantTextColor(variant: Variant, colors: ReturnType<typeof useThemedStyles>['colors']) {
+  if (variant === 'outline' || variant === 'ghost') return colors.primaryDark
+  return '#FFFFFF'
+}
+
 export function Button({
   title,
   variant = 'primary',
   size = 'md',
   className = '',
   disabled,
+  style,
   ...props
 }: Props) {
+  const { colors } = useThemedStyles()
+
   return (
     <Pressable
       className={`rounded-2xl items-center justify-center ${variantClasses[variant]} ${sizeClasses[size]} ${disabled ? 'opacity-50' : ''} ${className}`}
+      style={[variantStyle(variant, colors), style]}
       disabled={disabled}
       {...props}
     >
-      <Text className={`font-semibold text-base ${textClasses[variant]}`}>
+      <Text
+        className={`font-semibold text-base ${textClasses[variant]}`}
+        style={{ color: variantTextColor(variant, colors) }}
+      >
         {title}
       </Text>
     </Pressable>

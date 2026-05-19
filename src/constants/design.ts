@@ -1,7 +1,7 @@
 /** Design tokens aligned with assignment UI deliverables */
 
 export const brand = {
-  primary: '#0EA5E9',
+  primary: '#85c0d1',
   primaryDark: '#0284C7',
   accent: '#8B5CF6',
   success: '#10B981',

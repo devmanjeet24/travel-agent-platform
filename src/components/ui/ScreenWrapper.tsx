@@ -34,7 +34,10 @@ export default function ScreenWrapper({
 
   if (scroll) {
     return (
-      <SafeAreaView className={`flex-1 ${theme.bg} ${className}`}>
+      <SafeAreaView
+        className={`flex-1 ${className}`}
+        style={{ backgroundColor: theme.colors.background }}
+      >
         <ScrollView
           className="flex-1"
           contentContainerStyle={{ flexGrow: 1 }}
@@ -49,7 +52,10 @@ export default function ScreenWrapper({
   }
 
   return (
-    <SafeAreaView className={`flex-1 ${theme.bg} ${padding} ${className}`}>
+    <SafeAreaView
+      className={`flex-1 ${padding} ${className}`}
+      style={{ backgroundColor: theme.colors.background }}
+    >
       {inner}
     </SafeAreaView>
   )
