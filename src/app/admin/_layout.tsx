@@ -1,5 +1,11 @@
 import { Stack } from 'expo-router'
 
+import { RequireSession } from '@/components/auth/require-session'
+
 export default function AdminLayout() {
-  return <Stack screenOptions={{ headerShown: false }} />
+  return (
+    <RequireSession>
+      <Stack screenOptions={{ headerShown: false }} />
+    </RequireSession>
+  )
 }

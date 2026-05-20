@@ -1,5 +1,5 @@
 export type { AuthResult } from './auth-api';
-export { getUserDisplayName } from './auth-api';
+export { formatAuthError, getUserDisplayName } from './auth-api';
 export { authKeys } from './auth-keys';
 export {
   fetchAuthSession,

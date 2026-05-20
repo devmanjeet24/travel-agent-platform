@@ -39,3 +39,9 @@ Tile usage: respect [OSM tile policy](https://operations.osmfoundation.org/polic
 ## OAuth (Google / Apple)
 
 Configure in **Supabase → Authentication → Providers**, not in `.env` for basic setup.
+
+## Email sign-up (confirmation)
+
+By default Supabase requires users to **confirm their email** before sign-in works. After sign-up, check your inbox for the Supabase confirmation link; sign-in returns `400` until the email is confirmed.
+
+For local development only, you can disable this under **Supabase → Authentication → Providers → Email → Confirm email**.

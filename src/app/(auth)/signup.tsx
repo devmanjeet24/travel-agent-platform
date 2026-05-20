@@ -19,12 +19,14 @@ export default function SignupScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [confirmationSent, setConfirmationSent] = useState(false)
 
   const signUpMutation = useSignUpMutation()
   const loading = signUpMutation.isPending
 
   const handleSignUp = () => {
     setError(null)
+    setConfirmationSent(false)
     if (!email.trim() || password.length < 8) {
       setError('Use a valid email and password (min. 8 characters).')
       return
@@ -36,9 +38,13 @@ export default function SignupScreen() {
         fullName: fullName.trim() || undefined,
       },
       {
-        onSuccess: ({ error: authError }) => {
+        onSuccess: ({ error: authError, needsEmailConfirmation }) => {
           if (authError) {
             setError(authError)
+            return
+          }
+          if (needsEmailConfirmation) {
+            setConfirmationSent(true)
             return
           }
           router.replace('/(tabs)')
@@ -77,6 +83,24 @@ export default function SignupScreen() {
           </Text>
         ) : null}
 
+        {confirmationSent ? (
+          <View
+            className="mb-4 rounded-2xl border px-4 py-4"
+            style={{
+              backgroundColor: `${brand.primary}18`,
+              borderColor: `${brand.primary}44`,
+            }}
+          >
+            <Text className="font-semibold" style={{ color: colors.text }}>
+              Check your email
+            </Text>
+            <Text className="mt-2 leading-6" style={{ color: colors.textMuted }}>
+              We sent a confirmation link to {email.trim()}. Open it, then come
+              back here to sign in.
+            </Text>
+          </View>
+        ) : null}
+
         <View className="gap-4">
           <Input
             label="Full name"
@@ -103,7 +127,13 @@ export default function SignupScreen() {
         </View>
 
         <Button
-          title={loading ? 'Creating account…' : 'Create account'}
+          title={
+            loading
+              ? 'Creating account…'
+              : confirmationSent
+                ? 'Resend confirmation'
+                : 'Create account'
+          }
           className="mt-8"
           onPress={handleSignUp}
         />

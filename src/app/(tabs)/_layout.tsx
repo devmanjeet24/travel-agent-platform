@@ -1,13 +1,15 @@
 import { Tabs } from 'expo-router'
 import { Bell, House, Map, MessageSquare, User } from 'lucide-react-native'
-import { Platform } from 'react-native'
-import { useColorScheme } from 'react-native'
+import { Platform, useColorScheme } from 'react-native'
+
+import { RequireSession } from '@/components/auth/require-session'
 
 export default function TabsLayout() {
   const scheme = useColorScheme()
   const isDark = scheme !== 'light'
 
   return (
+    <RequireSession>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -58,5 +60,6 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
+    </RequireSession>
   )
 }

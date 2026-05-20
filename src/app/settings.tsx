@@ -1,7 +1,7 @@
-import { Switch, Text, View } from 'react-native'
 import { useState } from 'react'
-import { useColorScheme } from 'react-native'
+import { Switch, Text, useColorScheme } from 'react-native'
 
+import { RequireSession } from '@/components/auth/require-session'
 import { ScreenHeader } from '@/components/ui/ScreenHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { Card } from '@/components/ui/Card'
@@ -27,6 +27,7 @@ export default function SettingsScreen() {
   ]
 
   return (
+    <RequireSession>
     <ScreenWrapper scroll>
       <ScreenHeader title="Settings" subtitle="Preferences & app" showBack />
 
@@ -52,5 +53,6 @@ export default function SettingsScreen() {
         <Text className={`${theme.text} mt-1`}>1.0.0 · Design preview</Text>
       </Card>
     </ScreenWrapper>
+    </RequireSession>
   )
 }

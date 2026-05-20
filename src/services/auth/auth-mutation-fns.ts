@@ -1,6 +1,6 @@
 import { getSupabaseOrNull } from '@/lib/supabase';
 
-import type { AuthResult } from './auth-api';
+import { formatAuthError, type AuthResult } from './auth-api';
 
 export async function signInWithEmail(
   email: string,
@@ -11,7 +11,7 @@ export async function signInWithEmail(
     return { error: 'Supabase is not configured. Check your .env file.' };
   }
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-  return { error: error?.message ?? null };
+  return { error: error ? formatAuthError(error) : null };
 }
 
 export async function signUpWithEmail(
@@ -23,12 +23,18 @@ export async function signUpWithEmail(
   if (!supabase) {
     return { error: 'Supabase is not configured. Check your .env file.' };
   }
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: fullName ? { data: { full_name: fullName } } : undefined,
   });
-  return { error: error?.message ?? null };
+  if (error) {
+    return { error: formatAuthError(error) };
+  }
+  if (data.user && !data.session) {
+    return { error: null, needsEmailConfirmation: true };
+  }
+  return { error: null };
 }
 
 export async function signOut(): Promise<AuthResult> {

@@ -1,10 +1,13 @@
 import { Stack } from 'expo-router'
 import { useColorScheme } from 'react-native'
 
+import { RequireSession } from '@/components/auth/require-session'
+
 export default function TripDetailLayout() {
   const isDark = useColorScheme() !== 'light'
 
   return (
+    <RequireSession>
     <Stack
       screenOptions={{
         headerShown: true,
@@ -23,5 +26,6 @@ export default function TripDetailLayout() {
       <Stack.Screen name="map" options={{ title: 'Map & routes' }} />
       <Stack.Screen name="packing" options={{ title: 'Packing list' }} />
     </Stack>
+    </RequireSession>
   )
 }

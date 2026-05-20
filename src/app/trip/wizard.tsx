@@ -1,6 +1,7 @@
 import { Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 
+import { RequireSession } from '@/components/auth/require-session'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { ScreenHeader } from '@/components/ui/ScreenHeader'
@@ -12,6 +13,7 @@ export default function TripWizardScreen() {
   const theme = useThemedStyles()
 
   return (
+    <RequireSession>
     <ScreenWrapper scroll>
       <ScreenHeader
         title="Trip wizard"
@@ -36,5 +38,6 @@ export default function TripWizardScreen() {
         onPress={() => router.push('/(tabs)/chat')}
       />
     </ScreenWrapper>
+    </RequireSession>
   )
 }

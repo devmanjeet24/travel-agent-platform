@@ -2,6 +2,7 @@ import { Image, Text, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Star, Thermometer, Users } from 'lucide-react-native'
 
+import { RequireSession } from '@/components/auth/require-session'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { ScreenHeader } from '@/components/ui/ScreenHeader'
@@ -17,6 +18,7 @@ export default function DestinationDetailScreen() {
     mockDestinations.find((d) => d.id === id) ?? mockDestinations[0]
 
   return (
+    <RequireSession>
     <ScreenWrapper scroll padded={false}>
       <Image source={{ uri: destination.image }} className="w-full h-56" />
       <View className="px-5 pb-8">
@@ -62,5 +64,6 @@ export default function DestinationDetailScreen() {
         />
       </View>
     </ScreenWrapper>
+    </RequireSession>
   )
 }
