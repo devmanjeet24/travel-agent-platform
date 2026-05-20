@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { brand } from '@/constants/design'
+import { useResetPasswordMutation } from '@/hooks/auth/use-reset-password-mutation'
+import { useSignInMutation } from '@/hooks/auth/use-sign-in-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
-import { resetPassword, signInWithEmail } from '@/services/auth.service'
 
 export default function LoginScreen() {
   const router = useRouter()
@@ -18,33 +19,48 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
 
-  const handleSignIn = async () => {
+  const signInMutation = useSignInMutation()
+  const resetPasswordMutation = useResetPasswordMutation()
+
+  const loading = signInMutation.isPending
+
+  const handleSignIn = () => {
     setError(null)
     if (!email.trim() || !password) {
       setError('Email and password are required.')
       return
     }
-    setLoading(true)
-    const { error: authError } = await signInWithEmail(email.trim(), password)
-    setLoading(false)
-    if (authError) {
-      setError(authError)
-      return
-    }
-    router.replace('/(tabs)')
+    signInMutation.mutate(
+      { email: email.trim(), password },
+      {
+        onSuccess: ({ error: authError }) => {
+          if (authError) {
+            setError(authError)
+            return
+          }
+          router.replace('/(tabs)')
+        },
+      },
+    )
   }
 
-  const handleForgotPassword = async () => {
+  const handleForgotPassword = () => {
     if (!email.trim()) {
       Alert.alert('Reset password', 'Enter your email above first.')
       return
     }
-    const { error: resetError } = await resetPassword(email.trim())
-    Alert.alert(
-      resetError ? 'Could not send reset email' : 'Check your email',
-      resetError ?? 'If an account exists, a reset link was sent.',
+    resetPasswordMutation.mutate(
+      { email: email.trim() },
+      {
+        onSettled: (data) => {
+          const resetError = data?.error ?? null
+          Alert.alert(
+            resetError ? 'Could not send reset email' : 'Check your email',
+            resetError ?? 'If an account exists, a reset link was sent.',
+          )
+        },
+      },
     )
   }
 

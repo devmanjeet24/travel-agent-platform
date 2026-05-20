@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { brand } from '@/constants/design'
+import { useSignUpMutation } from '@/hooks/auth/use-sign-up-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
-import { signUpWithEmail } from '@/services/auth.service'
 
 export default function SignupScreen() {
   const router = useRouter()
@@ -19,26 +19,32 @@ export default function SignupScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
 
-  const handleSignUp = async () => {
+  const signUpMutation = useSignUpMutation()
+  const loading = signUpMutation.isPending
+
+  const handleSignUp = () => {
     setError(null)
     if (!email.trim() || password.length < 8) {
       setError('Use a valid email and password (min. 8 characters).')
       return
     }
-    setLoading(true)
-    const { error: authError } = await signUpWithEmail(
-      email.trim(),
-      password,
-      fullName.trim() || undefined,
+    signUpMutation.mutate(
+      {
+        email: email.trim(),
+        password,
+        fullName: fullName.trim() || undefined,
+      },
+      {
+        onSuccess: ({ error: authError }) => {
+          if (authError) {
+            setError(authError)
+            return
+          }
+          router.replace('/(tabs)')
+        },
+      },
     )
-    setLoading(false)
-    if (authError) {
-      setError(authError)
-      return
-    }
-    router.replace('/(tabs)')
   }
 
   return (

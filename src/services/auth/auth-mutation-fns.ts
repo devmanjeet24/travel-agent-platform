@@ -1,8 +1,6 @@
-import type { Session, User } from '@supabase/supabase-js';
+import { getSupabaseOrNull } from '@/lib/supabase';
 
-import { getSupabase, getSupabaseOrNull } from '@/lib/supabase';
-
-export type AuthResult = { error: string | null };
+import type { AuthResult } from './auth-api';
 
 export async function signInWithEmail(
   email: string,
@@ -49,16 +47,36 @@ export async function resetPassword(email: string): Promise<AuthResult> {
   return { error: error?.message ?? null };
 }
 
-export async function getCurrentSession(): Promise<Session | null> {
-  const supabase = getSupabaseOrNull();
-  if (!supabase) return null;
-  const { data } = await supabase.auth.getSession();
-  return data.session;
+export type SignInVariables = { email: string; password: string };
+
+export function signInWithEmailMutationFn(
+  variables: SignInVariables,
+): Promise<AuthResult> {
+  return signInWithEmail(variables.email, variables.password);
 }
 
-export function getUserDisplayName(user: User | null): string {
-  if (!user) return 'Traveler';
-  const meta = user.user_metadata?.full_name;
-  if (typeof meta === 'string' && meta.trim()) return meta;
-  return user.email?.split('@')[0] ?? 'Traveler';
+export type SignUpVariables = {
+  email: string;
+  password: string;
+  fullName?: string;
+};
+
+export function signUpWithEmailMutationFn(
+  variables: SignUpVariables,
+): Promise<AuthResult> {
+  return signUpWithEmail(
+    variables.email,
+    variables.password,
+    variables.fullName,
+  );
+}
+
+export const signOutMutationFn = signOut;
+
+export type ResetPasswordVariables = { email: string };
+
+export function resetPasswordMutationFn(
+  variables: ResetPasswordVariables,
+): Promise<AuthResult> {
+  return resetPassword(variables.email);
 }

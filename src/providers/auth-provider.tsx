@@ -3,14 +3,15 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useState,
   type ReactNode,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Session, User } from '@supabase/supabase-js';
 
+import { useAuthSessionQuery } from '@/hooks/auth/use-auth-session-query';
 import { isSupabaseConfigured } from '@/lib/env';
 import { getSupabaseOrNull } from '@/lib/supabase';
-import { getUserDisplayName } from '@/services/auth.service';
+import { authKeys, getUserDisplayName } from '@/services/auth';
 
 type AuthContextValue = {
   session: Session | null;
@@ -23,32 +24,26 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const isConfigured = isSupabaseConfigured();
+  const sessionQuery = useAuthSessionQuery();
 
   useEffect(() => {
+    if (!isConfigured) return;
     const supabase = getSupabaseOrNull();
-    if (!supabase) {
-      setLoading(false);
-      return;
-    }
-
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
+    if (!supabase) return;
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-      setLoading(false);
+      queryClient.setQueryData(authKeys.session(), nextSession);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [isConfigured, queryClient]);
 
+  const session = sessionQuery.data ?? null;
+  const loading = isConfigured && sessionQuery.isPending;
   const user = session?.user ?? null;
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
 

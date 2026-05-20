@@ -7,21 +7,25 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { mockUser } from '@/constants/design'
+import { useSignOutMutation } from '@/hooks/auth/use-sign-out-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
-import { signOut } from '@/services/auth.service'
 
 export default function ProfileScreen() {
   const router = useRouter()
   const theme = useThemedStyles()
   const { user, displayName } = useAuth()
+  const signOutMutation = useSignOutMutation()
 
   const email = user?.email ?? mockUser.email
   const name = user ? displayName : mockUser.name
 
-  const handleSignOut = async () => {
-    await signOut()
-    router.replace('/(auth)/login')
+  const handleSignOut = () => {
+    signOutMutation.mutate(undefined, {
+      onSettled: () => {
+        router.replace('/(auth)/login')
+      },
+    })
   }
 
   const menuItems = [
