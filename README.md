@@ -1,56 +1,64 @@
-# Welcome to your Expo app 👋
+# AI Travel Agent Platform
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Cross-platform travel planning app (Expo + React Native + TypeScript + Supabase + OpenStreetMap).
 
 ## Get started
 
-1. Install dependencies
+1. Install dependencies:
 
    ```bash
    npm install
    ```
 
-2. Start the app
+2. Copy environment template and add your Supabase keys:
 
    ```bash
-   npx expo start
+   cp .env.example .env
    ```
 
-In the output, you'll find options to open the app in a
+   See [docs/environment-setup.md](./docs/environment-setup.md) for all variables.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+3. Start the app:
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+   ```bash
+   npx expo start -c
+   ```
 
-## Get a fresh project
+## What's included
 
-When you're ready, run:
+- **UI screens** — auth, dashboard, chat, trips, itinerary, budget, maps, admin
+- **Supabase auth** — email/password sign-in, sign-up, password reset, session persistence
+- **OpenStreetMap maps** — `react-native-maps` with OSM tiles + OSRM driving routes (no Google billing)
+- **Environment setup** — `.env.example`, typed `src/lib/env.ts`, gitignored `.env`
 
-```bash
-npm run reset-project
+## Environment variables (client)
+
+| Variable | Required |
+|----------|----------|
+| `EXPO_PUBLIC_SUPABASE_URL` | Yes |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes |
+| `EXPO_PUBLIC_MAP_TILE_URL` | No (defaults to OSM) |
+| `EXPO_PUBLIC_OSRM_BASE_URL` | No (defaults to public OSRM) |
+
+Server secrets (`OPENAI_API_KEY`, etc.) go in **Supabase Edge Functions**, not in the mobile `.env`.
+
+## Project structure
+
 ```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+src/
+  app/           # Expo Router screens
+  components/    # UI + maps
+  constants/     # Design tokens, demo trip data
+  hooks/
+  lib/           # env, supabase, query client
+  providers/     # Redux, React Query, Auth
+  services/      # auth, osrm routing
+docs/
+  environment-setup.md
+```
 
 ## Learn more
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- [Expo documentation](https://docs.expo.dev/)
+- [Supabase docs](https://supabase.com/docs)
+- [OpenStreetMap](https://www.openstreetmap.org/)

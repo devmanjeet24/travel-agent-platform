@@ -4,16 +4,25 @@ import { Text, View } from 'react-native'
 import { Plane } from 'lucide-react-native'
 
 import { brand } from '@/constants/design'
+import { useAuth } from '@/providers/auth-provider'
 
 export default function SplashScreen() {
   const router = useRouter()
+  const { loading, session } = useAuth()
 
   useEffect(() => {
+    if (loading) return
+
     const timer = setTimeout(() => {
-      router.replace('/(auth)/login')
-    }, 2200)
+      if (session) {
+        router.replace('/(tabs)')
+      } else {
+        router.replace('/(auth)/login')
+      }
+    }, 1800)
+
     return () => clearTimeout(timer)
-  }, [router])
+  }, [loading, router, session])
 
   return (
     <View

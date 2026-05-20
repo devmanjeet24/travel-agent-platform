@@ -1,22 +1,33 @@
-import { View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 
-import { MapCard } from '@/components/ui/MapCard'
+import {
+  AttractionRow,
+  openAttractionInMaps,
+  TripMap,
+} from '@/components/maps/TripMap'
+import { demoBaliAttractions } from '@/constants/trip-attractions'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
-
-const attractions = [
-  { title: 'Tegallalang Rice Terrace', subtitle: 'Ubud · Cultural site', distance: '45 min from Seminyak' },
-  { title: 'Tanah Lot Temple', subtitle: 'Tabanan · Sunset spot', distance: '1h 10 min drive' },
-  { title: 'Seminyak Beach', subtitle: 'Beach · Near hotel', distance: '8 min walk' },
-]
 
 export default function MapScreen() {
   const theme = useThemedStyles()
 
   return (
-    <View className={`flex-1 ${theme.bg} px-5 pb-8`}>
-      {attractions.map((a, i) => (
-        <MapCard key={i} {...a} />
+    <ScrollView
+      className={`flex-1 ${theme.bg}`}
+      contentContainerClassName="px-5 pb-8 pt-2"
+      showsVerticalScrollIndicator={false}
+    >
+      <View className="h-[360px]">
+        <TripMap attractions={demoBaliAttractions} />
+      </View>
+
+      {demoBaliAttractions.map((a) => (
+        <AttractionRow
+          key={a.id}
+          attraction={a}
+          onNavigate={() => openAttractionInMaps(a)}
+        />
       ))}
-    </View>
+    </ScrollView>
   )
 }

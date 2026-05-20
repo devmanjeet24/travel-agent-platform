@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Text, View } from 'react-native'
 import { Link, useRouter } from 'expo-router'
 import { Plane } from 'lucide-react-native'
@@ -7,10 +8,38 @@ import { Input } from '@/components/ui/Input'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
+import { useAuth } from '@/providers/auth-provider'
+import { signUpWithEmail } from '@/services/auth.service'
 
 export default function SignupScreen() {
   const router = useRouter()
   const { colors } = useThemedStyles()
+  const { isConfigured } = useAuth()
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const handleSignUp = async () => {
+    setError(null)
+    if (!email.trim() || password.length < 8) {
+      setError('Use a valid email and password (min. 8 characters).')
+      return
+    }
+    setLoading(true)
+    const { error: authError } = await signUpWithEmail(
+      email.trim(),
+      password,
+      fullName.trim() || undefined,
+    )
+    setLoading(false)
+    if (authError) {
+      setError(authError)
+      return
+    }
+    router.replace('/(tabs)')
+  }
 
   return (
     <ScreenWrapper scroll>
@@ -36,13 +65,42 @@ export default function SignupScreen() {
           </Text>
         </View>
 
+        {!isConfigured ? (
+          <Text className="text-amber-600 text-sm text-center mb-4 px-2">
+            Supabase is not configured. Copy .env.example to .env and add your keys.
+          </Text>
+        ) : null}
+
         <View className="gap-4">
-          <Input label="Full name" placeholder="Alex Rivera" />
-          <Input label="Email" placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
-          <Input label="Password" placeholder="Min. 8 characters" secureTextEntry />
+          <Input
+            label="Full name"
+            placeholder="Alex Rivera"
+            value={fullName}
+            onChangeText={setFullName}
+          />
+          <Input
+            label="Email"
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={email}
+            onChangeText={setEmail}
+          />
+          <Input
+            label="Password"
+            placeholder="Min. 8 characters"
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+            error={error ?? undefined}
+          />
         </View>
 
-        <Button title="Create account" className="mt-8" onPress={() => router.replace('/(tabs)')} />
+        <Button
+          title={loading ? 'Creating account…' : 'Create account'}
+          className="mt-8"
+          onPress={handleSignUp}
+        />
 
         <Text className="text-center mt-8" style={{ color: colors.textMuted }}>
           Already have an account?{' '}

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Provider } from 'react-redux';
 
 import { queryClient } from '@/lib/query-client';
+import { AuthProvider } from '@/providers/auth-provider';
 import { store } from '@/store';
 
 type AppProvidersProps = {
@@ -12,7 +13,9 @@ type AppProvidersProps = {
 export function AppProviders({ children }: AppProvidersProps) {
   return (
     <Provider store={store}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>{children}</AuthProvider>
+      </QueryClientProvider>
     </Provider>
   );
 }

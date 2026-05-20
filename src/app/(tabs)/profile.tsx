@@ -8,24 +8,33 @@ import { Card } from '@/components/ui/Card'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { mockUser } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
+import { useAuth } from '@/providers/auth-provider'
+import { signOut } from '@/services/auth.service'
 
 export default function ProfileScreen() {
   const router = useRouter()
   const theme = useThemedStyles()
+  const { user, displayName } = useAuth()
+
+  const email = user?.email ?? mockUser.email
+  const name = user ? displayName : mockUser.name
+
+  const handleSignOut = async () => {
+    await signOut()
+    router.replace('/(auth)/login')
+  }
 
   const menuItems = [
-    { label: 'Settings', icon: Settings, route: '/settings' },
-    { label: 'Sign out', icon: LogOut, route: '/(auth)/login' },
+    { label: 'Settings', icon: Settings, route: '/settings' as const },
+    { label: 'Sign out', icon: LogOut, action: handleSignOut },
   ]
 
   return (
     <ScreenWrapper scroll>
       <View className="items-center mt-6">
-        <Avatar uri={mockUser.avatar} name={mockUser.name} size="lg" />
-        <Text className={`${theme.text} text-2xl font-bold mt-4`}>
-          {mockUser.name}
-        </Text>
-        <Text className={`${theme.textMuted} mt-1`}>{mockUser.email}</Text>
+        <Avatar uri={mockUser.avatar} name={name} size="lg" />
+        <Text className={`${theme.text} text-2xl font-bold mt-4`}>{name}</Text>
+        <Text className={`${theme.textMuted} mt-1`}>{email}</Text>
       </View>
 
       <View className="flex-row gap-3 mt-8">
@@ -49,7 +58,7 @@ export default function ProfileScreen() {
           return (
             <Pressable
               key={item.label}
-              onPress={() => router.push(item.route as never)}
+              onPress={'action' in item ? item.action : () => router.push(item.route)}
               className={`${theme.bgCard} ${theme.border} border rounded-2xl p-4 mb-3 flex-row items-center active:opacity-90`}
             >
               <Icon size={22} color={theme.isDark ? '#94A3B8' : '#64748B'} />
