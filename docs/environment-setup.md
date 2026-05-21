@@ -23,8 +23,10 @@ Set in **Supabase → Edge Functions → Secrets** when you add AI tools:
 
 | Secret | Purpose |
 |--------|---------|
-| `OPENAI_API_KEY` | Chat agent, itinerary generation |
-| `SUPABASE_SERVICE_ROLE_KEY` | Admin-only server tasks |
+| `GROQ_API_KEY` | AI chat, plan-trip, transcribe — see [groq-chat-setup.md](./groq-chat-setup.md) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Admin-only server tasks (optional) |
+
+Travel data (weather, hotels, geocoding) uses free APIs — see [travel-apis-setup.md](./travel-apis-setup.md).
 
 ## Maps (OpenStreetMap)
 

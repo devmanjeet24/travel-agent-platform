@@ -1,3 +1,5 @@
+import '@/lib/native-splash'
+
 import {
   DarkTheme,
   DefaultTheme,

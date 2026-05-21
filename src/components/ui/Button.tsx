@@ -71,16 +71,38 @@ export function Button({
 }: Props) {
   const { colors } = useThemedStyles()
 
+  const sizeStyle =
+    size === 'sm'
+      ? { paddingVertical: 10, paddingHorizontal: 16, minHeight: 44 }
+      : size === 'lg'
+        ? { paddingVertical: 16, paddingHorizontal: 24, minHeight: 56 }
+        : { paddingVertical: 14, paddingHorizontal: 20, minHeight: 52 }
+
   return (
     <Pressable
-      className={`rounded-2xl items-center justify-center ${variantClasses[variant]} ${sizeClasses[size]} ${disabled ? 'opacity-50' : ''} ${className}`}
-      style={[variantStyle(variant, colors), style]}
+      className={`${variantClasses[variant]} ${sizeClasses[size]} ${disabled ? 'opacity-50' : ''} ${className}`}
+      style={[
+        {
+          borderRadius: 16,
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '100%',
+        },
+        sizeStyle,
+        variantStyle(variant, colors),
+        disabled ? { opacity: 0.5 } : undefined,
+        style,
+      ]}
       disabled={disabled}
       {...props}
     >
       <Text
-        className={`font-semibold text-base ${textClasses[variant]}`}
-        style={{ color: variantTextColor(variant, colors) }}
+        className={textClasses[variant]}
+        style={{
+          color: variantTextColor(variant, colors),
+          fontSize: 16,
+          fontWeight: '600',
+        }}
       >
         {title}
       </Text>

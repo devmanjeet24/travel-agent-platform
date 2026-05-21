@@ -1,24 +1,35 @@
-import { View } from 'react-native'
+import { ActivityIndicator, View } from 'react-native'
+import { useLocalSearchParams } from 'expo-router'
 
 import { BudgetChart } from '@/components/ui/BudgetChart'
+import { useTripBudgetQuery } from '@/hooks/trips/use-trip-query'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
-const categories = [
-  { label: 'Flights', amount: 980, color: '#0EA5E9' },
-  { label: 'Hotels', amount: 720, color: '#8B5CF6' },
-  { label: 'Food', amount: 350, color: '#10B981' },
-  { label: 'Local transport', amount: 120, color: '#F59E0B' },
-  { label: 'Activities', amount: 280, color: '#EC4899' },
-  { label: 'Miscellaneous', amount: 90, color: '#64748B' },
-]
-
 export default function BudgetScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>()
   const theme = useThemedStyles()
-  const total = categories.reduce((s, c) => s + c.amount, 0)
+  const { data: categories, isLoading } = useTripBudgetQuery(id)
+
+  if (isLoading) {
+    return (
+      <View className={`flex-1 ${theme.bg} items-center justify-center`}>
+        <ActivityIndicator color="#0EA5E9" />
+      </View>
+    )
+  }
+
+  const chartCategories =
+    categories?.map((c) => ({
+      label: c.label,
+      amount: Number(c.amount_usd),
+      color: c.color ?? '#64748B',
+    })) ?? []
+
+  const total = chartCategories.reduce((s, c) => s + c.amount, 0)
 
   return (
     <View className={`flex-1 ${theme.bg} px-5 pb-8`}>
-      <BudgetChart categories={categories} total={total} />
+      <BudgetChart categories={chartCategories} total={total} />
     </View>
   )
 }

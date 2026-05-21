@@ -1,12 +1,11 @@
-import { Pressable, Text, View } from 'react-native'
+import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { ChevronRight, LogOut, Settings } from 'lucide-react-native'
 
 import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
-import { mockUser } from '@/constants/design'
+import { useProfileQuery } from '@/hooks/profile/use-profile-query'
 import { useSignOutMutation } from '@/hooks/auth/use-sign-out-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
@@ -15,10 +14,11 @@ export default function ProfileScreen() {
   const router = useRouter()
   const theme = useThemedStyles()
   const { user, displayName } = useAuth()
+  const { data: profile, isLoading } = useProfileQuery()
   const signOutMutation = useSignOutMutation()
 
-  const email = user?.email ?? mockUser.email
-  const name = user ? displayName : mockUser.name
+  const email = user?.email ?? ''
+  const name = profile?.display_name ?? displayName
 
   const handleSignOut = () => {
     signOutMutation.mutate(undefined, {
@@ -36,25 +36,35 @@ export default function ProfileScreen() {
   return (
     <ScreenWrapper scroll>
       <View className="items-center mt-6">
-        <Avatar uri={mockUser.avatar} name={name} size="lg" />
+        <Avatar uri={profile?.avatar_url ?? undefined} name={name} size="lg" />
         <Text className={`${theme.text} text-2xl font-bold mt-4`}>{name}</Text>
         <Text className={`${theme.textMuted} mt-1`}>{email}</Text>
       </View>
 
-      <View className="flex-row gap-3 mt-8">
-        <Card className="flex-1 items-center">
-          <Text className={`${theme.text} text-2xl font-bold`}>{mockUser.tripsCount}</Text>
-          <Text className={`${theme.textMuted} text-xs mt-1`}>Trips</Text>
-        </Card>
-        <Card className="flex-1 items-center">
-          <Text className={`${theme.text} text-2xl font-bold`}>{mockUser.countriesVisited}</Text>
-          <Text className={`${theme.textMuted} text-xs mt-1`}>Countries</Text>
-        </Card>
-        <Card className="flex-1 items-center">
-          <Text className={`${theme.text} text-2xl font-bold`}>{mockUser.aiPlansGenerated}</Text>
-          <Text className={`${theme.textMuted} text-xs mt-1`}>AI plans</Text>
-        </Card>
-      </View>
+      {isLoading ? (
+        <ActivityIndicator className="mt-8" color="#0EA5E9" />
+      ) : (
+        <View className="flex-row gap-3 mt-8">
+          <View className={`flex-1 items-center rounded-2xl p-4 ${theme.bgCard} border ${theme.border}`}>
+            <Text className={`${theme.text} text-2xl font-bold`}>
+              {profile?.trips_count ?? 0}
+            </Text>
+            <Text className={`${theme.textMuted} text-xs mt-1`}>Trips</Text>
+          </View>
+          <View className={`flex-1 items-center rounded-2xl p-4 ${theme.bgCard} border ${theme.border}`}>
+            <Text className={`${theme.text} text-2xl font-bold`}>
+              {profile?.countries_visited ?? 0}
+            </Text>
+            <Text className={`${theme.textMuted} text-xs mt-1`}>Countries</Text>
+          </View>
+          <View className={`flex-1 items-center rounded-2xl p-4 ${theme.bgCard} border ${theme.border}`}>
+            <Text className={`${theme.text} text-2xl font-bold`}>
+              {profile?.ai_plans_generated ?? 0}
+            </Text>
+            <Text className={`${theme.textMuted} text-xs mt-1`}>AI plans</Text>
+          </View>
+        </View>
+      )}
 
       <View className="mt-6">
         {menuItems.map((item) => {

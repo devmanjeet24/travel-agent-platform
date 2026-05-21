@@ -25,8 +25,11 @@ export default function ScreenWrapper({
 
   const inner = (
     <View
-      className="w-full mx-auto flex-1"
-      style={Platform.OS === 'web' ? { maxWidth: MaxContentWidth } : undefined}
+      className="w-full mx-auto"
+      style={[
+        scroll ? undefined : { flex: 1 },
+        Platform.OS === 'web' ? { maxWidth: MaxContentWidth, alignSelf: 'center' } : undefined,
+      ]}
     >
       {children}
     </View>
@@ -40,10 +43,11 @@ export default function ScreenWrapper({
       >
         <ScrollView
           className="flex-1"
-          contentContainerStyle={{ flexGrow: 1 }}
+          contentContainerStyle={{ paddingBottom: 32 }}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View className={`${padding} pb-8 ${contentContainerClassName}`}>
+          <View className={`${padding} ${contentContainerClassName}`}>
             {inner}
           </View>
         </ScrollView>

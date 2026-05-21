@@ -43,7 +43,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [isConfigured, queryClient]);
 
   const session = sessionQuery.data ?? null;
-  const loading = isConfigured && sessionQuery.isPending;
+  // Only block UI on the first session fetch (no cached data yet).
+  // isPending stays true during background refetches and would remount auth screens.
+  const loading = isConfigured && sessionQuery.isLoading;
   const user = session?.user ?? null;
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
 

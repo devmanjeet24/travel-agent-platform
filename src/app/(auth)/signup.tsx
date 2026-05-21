@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 import { Link, useRouter } from 'expo-router'
 import { Plane } from 'lucide-react-native'
 
@@ -55,98 +55,127 @@ export default function SignupScreen() {
 
   return (
     <ScreenWrapper scroll>
-      <View className="py-8">
-        <View className="items-center mb-10">
-          <View
-            className="w-20 h-20 rounded-3xl items-center justify-center mb-5"
-            style={{ backgroundColor: `${brand.primary}44` }}
-          >
-            <Plane size={40} color={brand.primaryDark} />
-          </View>
-          <Text
-            className="text-4xl font-bold text-center"
-            style={{ color: colors.text }}
-          >
-            Create account
-          </Text>
-          <Text
-            className="mt-3 text-base text-center leading-6 px-2"
-            style={{ color: colors.textMuted }}
-          >
-            Build your profile and start planning personalized trips.
-          </Text>
+      <View style={styles.header}>
+        <View
+          style={[styles.iconBox, { backgroundColor: `${brand.primary}44` }]}
+        >
+          <Plane size={40} color={brand.primaryDark} />
         </View>
-
-        {!isConfigured ? (
-          <Text className="text-amber-600 text-sm text-center mb-4 px-2">
-            Supabase is not configured. Copy .env.example to .env and add your keys.
-          </Text>
-        ) : null}
-
-        {confirmationSent ? (
-          <View
-            className="mb-4 rounded-2xl border px-4 py-4"
-            style={{
-              backgroundColor: `${brand.primary}18`,
-              borderColor: `${brand.primary}44`,
-            }}
-          >
-            <Text className="font-semibold" style={{ color: colors.text }}>
-              Check your email
-            </Text>
-            <Text className="mt-2 leading-6" style={{ color: colors.textMuted }}>
-              We sent a confirmation link to {email.trim()}. Open it, then come
-              back here to sign in.
-            </Text>
-          </View>
-        ) : null}
-
-        <View className="gap-4">
-          <Input
-            label="Full name"
-            placeholder="Alex Rivera"
-            value={fullName}
-            onChangeText={setFullName}
-          />
-          <Input
-            label="Email"
-            placeholder="you@example.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            value={email}
-            onChangeText={setEmail}
-          />
-          <Input
-            label="Password"
-            placeholder="Min. 8 characters"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            error={error ?? undefined}
-          />
-        </View>
-
-        <Button
-          title={
-            loading
-              ? 'Creating account…'
-              : confirmationSent
-                ? 'Resend confirmation'
-                : 'Create account'
-          }
-          className="mt-8"
-          onPress={handleSignUp}
-        />
-
-        <Text className="text-center mt-8" style={{ color: colors.textMuted }}>
-          Already have an account?{' '}
-          <Link href="/(auth)/login" asChild>
-            <Text style={{ color: brand.primaryDark }} className="font-semibold">
-              Sign in
-            </Text>
-          </Link>
+        <Text
+          className="text-4xl font-bold text-center"
+          style={{ color: colors.text }}
+        >
+          Create account
+        </Text>
+        <Text
+          className="mt-3 text-base text-center leading-6 px-2"
+          style={{ color: colors.textMuted }}
+        >
+          Build your profile and start planning personalized trips.
         </Text>
       </View>
+
+      {!isConfigured ? (
+        <Text className="text-amber-600 text-sm text-center mb-4 px-2">
+          Supabase is not configured. Copy .env.example to .env and add your
+          keys.
+        </Text>
+      ) : null}
+
+      {confirmationSent ? (
+        <View
+          style={[
+            styles.confirmationBox,
+            {
+              backgroundColor: `${brand.primary}18`,
+              borderColor: `${brand.primary}44`,
+            },
+          ]}
+        >
+          <Text
+            className="font-semibold text-base"
+            style={{ color: colors.text }}
+          >
+            Check your email
+          </Text>
+          <Text
+            className="mt-2 text-[15px] leading-[22px]"
+            style={{ color: colors.textMuted }}
+          >
+            We sent a confirmation link to {email.trim()}. Open it, then come
+            back here to sign in.
+          </Text>
+        </View>
+      ) : null}
+
+      <View className="gap-4">
+        <Input
+          label="Full name"
+          placeholder="Alex Rivera"
+          value={fullName}
+          onChangeText={setFullName}
+        />
+        <Input
+          label="Email"
+          placeholder="you@example.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          value={email}
+          onChangeText={setEmail}
+        />
+        <Input
+          label="Password"
+          placeholder="Min. 8 characters"
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+          error={error ?? undefined}
+        />
+      </View>
+
+      <Button
+        title={
+          loading
+            ? 'Creating account…'
+            : confirmationSent
+              ? 'Resend confirmation'
+              : 'Create account'
+        }
+        onPress={handleSignUp}
+        className="mt-7"
+      />
+
+      <Text className="text-center mt-7 text-[15px]" style={{ color: colors.textMuted }}>
+        Already have an account?{' '}
+        <Link href="/(auth)/login" asChild>
+          <Text style={{ color: brand.primaryDark }} className="font-semibold">
+            Sign in
+          </Text>
+        </Link>
+      </Text>
     </ScreenWrapper>
   )
 }
+
+const styles = StyleSheet.create({
+  header: {
+    alignItems: 'center',
+    marginBottom: 28,
+    marginTop: 8,
+  },
+  iconBox: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  confirmationBox: {
+    marginBottom: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+})

@@ -1,6 +1,6 @@
 # AI Travel Agent Platform
 
-Cross-platform travel planning app (Expo + React Native + TypeScript + Supabase + OpenStreetMap).
+Cross-platform travel planning app (Expo + React Native + TypeScript + Supabase + live travel APIs).
 
 ## Get started
 
@@ -10,15 +10,15 @@ Cross-platform travel planning app (Expo + React Native + TypeScript + Supabase 
    npm install
    ```
 
-2. Copy environment template and add your Supabase keys:
+2. Copy environment template and add Supabase keys:
 
    ```bash
    cp .env.example .env
    ```
 
-   See [docs/environment-setup.md](./docs/environment-setup.md) for all variables.
+3. Configure Supabase (database, secrets, deploy functions) — see [docs/supabase-dashboard-setup.md](./docs/supabase-dashboard-setup.md).
 
-3. Start the app:
+4. Start the app:
 
    ```bash
    npx expo start -c
@@ -26,10 +26,12 @@ Cross-platform travel planning app (Expo + React Native + TypeScript + Supabase 
 
 ## What's included
 
-- **UI screens** — auth, dashboard, chat, trips, itinerary, budget, maps, admin
-- **Supabase auth** — email/password sign-in, sign-up, password reset, session persistence
-- **OpenStreetMap maps** — `react-native-maps` with OSM tiles + OSRM driving routes (no Google billing)
-- **Environment setup** — `.env.example`, typed `src/lib/env.ts`, gitignored `.env`
+- **Supabase** — auth, trips, chat history, notifications, itinerary/budget/packing
+- **Groq** — streaming AI chat, trip planner, voice transcription (Edge Functions)
+- **Open-Meteo + Nominatim + Overpass** — weather, geocoding, OSM hotels (no API key)
+- **OpenStreetMap + OSRM** — maps, markers, and driving routes
+- **Estimated fares** — flight/hotel prices when live booking APIs are unavailable
+- **expo-print / expo-notifications** — PDF export and local trip reminders
 
 ## Environment variables (client)
 
@@ -37,28 +39,30 @@ Cross-platform travel planning app (Expo + React Native + TypeScript + Supabase 
 |----------|----------|
 | `EXPO_PUBLIC_SUPABASE_URL` | Yes |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes |
-| `EXPO_PUBLIC_MAP_TILE_URL` | No (defaults to OSM) |
-| `EXPO_PUBLIC_OSRM_BASE_URL` | No (defaults to public OSRM) |
+| `EXPO_PUBLIC_MAP_TILE_URL` | No |
+| `EXPO_PUBLIC_OSRM_BASE_URL` | No |
 
-Server secrets (`OPENAI_API_KEY`, etc.) go in **Supabase Edge Functions**, not in the mobile `.env`.
+Server secret (`GROQ_API_KEY`) goes in **Supabase Edge Functions**, not in the mobile `.env`.
 
 ## Project structure
 
 ```
 src/
   app/           # Expo Router screens
-  components/    # UI + maps
-  constants/     # Design tokens, demo trip data
-  hooks/
-  lib/           # env, supabase, query client
-  providers/     # Redux, React Query, Auth
-  services/      # auth, osrm routing
+  services/      # trips, chat, travel, auth, notifications
+  hooks/         # React Query
+  lib/           # supabase, edge streaming, pdf, notifications
+supabase/
+  migrations/    # Postgres schema + RLS
+  functions/     # chat, travel-search, plan-trip, transcribe
 docs/
-  environment-setup.md
+  travel-apis-setup.md
+  groq-chat-setup.md
 ```
 
 ## Learn more
 
 - [Expo documentation](https://docs.expo.dev/)
 - [Supabase docs](https://supabase.com/docs)
+- [Open-Meteo](https://open-meteo.com/)
 - [OpenStreetMap](https://www.openstreetmap.org/)
