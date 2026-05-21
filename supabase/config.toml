@@ -1,0 +1,11 @@
+[functions.chat]
+verify_jwt = true
+
+[functions.travel-search]
+verify_jwt = true
+
+[functions.plan-trip]
+verify_jwt = true
+
+[functions.transcribe]
+verify_jwt = true

@@ -1,56 +1,68 @@
-# Welcome to your Expo app 👋
+# AI Travel Agent Platform
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Cross-platform travel planning app (Expo + React Native + TypeScript + Supabase + live travel APIs).
 
 ## Get started
 
-1. Install dependencies
+1. Install dependencies:
 
    ```bash
    npm install
    ```
 
-2. Start the app
+2. Copy environment template and add Supabase keys:
 
    ```bash
-   npx expo start
+   cp .env.example .env
    ```
 
-In the output, you'll find options to open the app in a
+3. Configure Supabase (database, secrets, deploy functions) — see [docs/supabase-dashboard-setup.md](./docs/supabase-dashboard-setup.md).
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+4. Start the app:
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+   ```bash
+   npx expo start -c
+   ```
 
-## Get a fresh project
+## What's included
 
-When you're ready, run:
+- **Supabase** — auth, trips, chat history, notifications, itinerary/budget/packing
+- **Groq** — streaming AI chat, trip planner, voice transcription (Edge Functions)
+- **Open-Meteo + Nominatim + Overpass** — weather, geocoding, OSM hotels (no API key)
+- **OpenStreetMap + OSRM** — maps, markers, and driving routes
+- **Estimated fares** — flight/hotel prices when live booking APIs are unavailable
+- **expo-print / expo-notifications** — PDF export and local trip reminders
 
-```bash
-npm run reset-project
+## Environment variables (client)
+
+| Variable | Required |
+|----------|----------|
+| `EXPO_PUBLIC_SUPABASE_URL` | Yes |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes |
+| `EXPO_PUBLIC_MAP_TILE_URL` | No |
+| `EXPO_PUBLIC_OSRM_BASE_URL` | No |
+
+Server secret (`GROQ_API_KEY`) goes in **Supabase Edge Functions**, not in the mobile `.env`.
+
+## Project structure
+
 ```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+src/
+  app/           # Expo Router screens
+  services/      # trips, chat, travel, auth, notifications
+  hooks/         # React Query
+  lib/           # supabase, edge streaming, pdf, notifications
+supabase/
+  migrations/    # Postgres schema + RLS
+  functions/     # chat, travel-search, plan-trip, transcribe
+docs/
+  travel-apis-setup.md
+  groq-chat-setup.md
+```
 
 ## Learn more
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- [Expo documentation](https://docs.expo.dev/)
+- [Supabase docs](https://supabase.com/docs)
+- [Open-Meteo](https://open-meteo.com/)
+- [OpenStreetMap](https://www.openstreetmap.org/)

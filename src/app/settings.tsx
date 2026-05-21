@@ -1,0 +1,87 @@
+import { useEffect, useState } from 'react'
+import { Switch, Text, useColorScheme } from 'react-native'
+
+import { RequireSession } from '@/components/auth/require-session'
+import { ScreenHeader } from '@/components/ui/ScreenHeader'
+import ScreenWrapper from '@/components/ui/ScreenWrapper'
+import { Card } from '@/components/ui/Card'
+import { useProfileQuery } from '@/hooks/profile/use-profile-query'
+import { updateProfileSettings } from '@/services/profile/profile-api'
+import { registerForPushNotifications } from '@/lib/notifications-setup'
+import { useAuth } from '@/providers/auth-provider'
+import { useThemedStyles } from '@/hooks/use-themed-styles'
+
+export default function SettingsScreen() {
+  const theme = useThemedStyles()
+  const systemScheme = useColorScheme()
+  const { user } = useAuth()
+  const { data: profile } = useProfileQuery()
+  const [notifications, setNotifications] = useState(true)
+  const [offlineMode, setOfflineMode] = useState(true)
+
+  useEffect(() => {
+    if (profile) {
+      setNotifications(profile.push_notifications_enabled)
+      setOfflineMode(profile.offline_sync_enabled)
+    }
+  }, [profile])
+
+  const persist = async (
+    patch: Partial<{
+      push_notifications_enabled: boolean
+      offline_sync_enabled: boolean
+    }>,
+  ) => {
+    if (!user) return
+    await updateProfileSettings(user.id, patch)
+  }
+
+  const onNotificationsChange = async (value: boolean) => {
+    setNotifications(value)
+    await persist({ push_notifications_enabled: value })
+    if (value) await registerForPushNotifications()
+  }
+
+  const onOfflineChange = async (value: boolean) => {
+    setOfflineMode(value)
+    await persist({ offline_sync_enabled: value })
+  }
+
+  return (
+    <RequireSession>
+      <ScreenWrapper scroll>
+        <ScreenHeader title="Settings" subtitle="Preferences & app" showBack />
+
+        <Card className="mb-4">
+          <Text className={`${theme.textMuted} text-sm`}>Appearance</Text>
+          <Text className={`${theme.text} font-medium mt-1`}>
+            System · {systemScheme === 'dark' ? 'Dark' : 'Light'} mode
+          </Text>
+        </Card>
+
+        <Card className="mb-3 flex-row items-center justify-between">
+          <Text className={`${theme.text} font-medium flex-1`}>Push notifications</Text>
+          <Switch
+            value={notifications}
+            onValueChange={onNotificationsChange}
+            trackColor={{ true: '#0EA5E9' }}
+          />
+        </Card>
+
+        <Card className="mb-3 flex-row items-center justify-between">
+          <Text className={`${theme.text} font-medium flex-1`}>Offline trip sync</Text>
+          <Switch
+            value={offlineMode}
+            onValueChange={onOfflineChange}
+            trackColor={{ true: '#0EA5E9' }}
+          />
+        </Card>
+
+        <Card className="mt-4">
+          <Text className={`${theme.textMuted} text-sm`}>Version</Text>
+          <Text className={`${theme.text} mt-1`}>1.1.0 · Live APIs + Supabase</Text>
+        </Card>
+      </ScreenWrapper>
+    </RequireSession>
+  )
+}
