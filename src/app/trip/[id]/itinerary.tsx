@@ -4,6 +4,7 @@ import { Clock, MapPin } from 'lucide-react-native'
 
 import { Card } from '@/components/ui/Card'
 import { useTripItineraryQuery } from '@/hooks/trips/use-trip-query'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 export default function ItineraryScreen() {
@@ -14,7 +15,7 @@ export default function ItineraryScreen() {
   if (isLoading) {
     return (
       <View className={`flex-1 ${theme.bg} items-center justify-center`}>
-        <ActivityIndicator color="#0EA5E9" />
+        <ActivityIndicator color={brand.primaryDark} />
       </View>
     )
   }
@@ -40,8 +41,8 @@ export default function ItineraryScreen() {
           {d.activities.map((a) => (
             <Card key={a.id} className="mt-3">
               <View className="flex-row items-center gap-2">
-                <Clock size={16} color="#0EA5E9" />
-                <Text className="text-sky-500 font-semibold">
+                <Clock size={16} color={brand.primaryDark} />
+                <Text className="text-yellow-600 font-semibold">
                   {a.activity_time ?? '—'}
                 </Text>
               </View>

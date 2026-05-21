@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card'
 import { useTripPackingQuery } from '@/hooks/trips/use-trip-query'
 import { togglePackingItem } from '@/services/trips/trip-api'
 import { tripKeys } from '@/services/trips/trip-keys'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 export default function PackingScreen() {
@@ -25,7 +26,7 @@ export default function PackingScreen() {
   if (isLoading) {
     return (
       <View className={`flex-1 ${theme.bg} items-center justify-center`}>
-        <ActivityIndicator color="#0EA5E9" />
+        <ActivityIndicator color={brand.primaryDark} />
       </View>
     )
   }

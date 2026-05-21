@@ -3,6 +3,7 @@ import { useLocalSearchParams } from 'expo-router'
 
 import { BudgetChart } from '@/components/ui/BudgetChart'
 import { useTripBudgetQuery } from '@/hooks/trips/use-trip-query'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 export default function BudgetScreen() {
@@ -13,7 +14,7 @@ export default function BudgetScreen() {
   if (isLoading) {
     return (
       <View className={`flex-1 ${theme.bg} items-center justify-center`}>
-        <ActivityIndicator color="#0EA5E9" />
+        <ActivityIndicator color={brand.primaryDark} />
       </View>
     )
   }
@@ -22,7 +23,7 @@ export default function BudgetScreen() {
     categories?.map((c) => ({
       label: c.label,
       amount: Number(c.amount_usd),
-      color: c.color ?? '#64748B',
+      color: c.color ?? '#737373',
     })) ?? []
 
   const total = chartCategories.reduce((s, c) => s + c.amount, 0)

@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { ScreenHeader } from '@/components/ui/ScreenHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { useTripsQuery } from '@/hooks/trips/use-trips-query'
+import { brand } from '@/constants/design'
 import { formatTripDates } from '@/services/trips/trip-api'
 
 export default function TripsScreen() {
@@ -15,20 +16,22 @@ export default function TripsScreen() {
   const hasTrips = (trips?.length ?? 0) > 0
 
   return (
-    <ScreenWrapper scroll>
+    <ScreenWrapper scroll tabInset>
       <ScreenHeader
+        eyebrow="Your library"
         title="Saved trips"
         subtitle="Synced to your account · export PDF from trip overview"
       />
 
       {isLoading ? (
-        <ActivityIndicator className="mt-12" color="#0EA5E9" />
+        <ActivityIndicator className="mt-12" color={brand.primaryDark} />
       ) : hasTrips ? (
         trips!.map((trip) => (
           <TripCard
             key={trip.id}
             title={trip.title}
-            subtitle={`${formatTripDates(trip.start_date, trip.end_date)} · ${trip.status}`}
+            imageUri={trip.image_url ?? undefined}
+            subtitle={trip.destination}
             status={
               trip.status === 'completed'
                 ? 'completed'

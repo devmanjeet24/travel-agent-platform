@@ -1,5 +1,8 @@
+import { useState } from 'react'
 import { Text, TextInput, View, type TextInputProps } from 'react-native'
 
+import { brand } from '@/constants/design'
+import { radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 interface Props extends TextInputProps {
@@ -7,18 +10,21 @@ interface Props extends TextInputProps {
   error?: string
 }
 
-export function Input({ label, error, className = '', style, ...props }: Props) {
+export function Input({ label, error, className = '', style, onFocus, onBlur, ...props }: Props) {
   const theme = useThemedStyles()
+  const [focused, setFocused] = useState(false)
 
   return (
-    <View style={{ width: '100%', marginBottom: 16 }}>
+    <View style={{ width: '100%', marginBottom: 18 }}>
       {label ? (
         <Text
           style={{
             color: theme.colors.text,
-            fontSize: 14,
-            fontWeight: '500',
+            fontSize: 13,
+            fontWeight: '600',
             marginBottom: 8,
+            letterSpacing: 0.3,
+            textTransform: 'uppercase',
           }}
         >
           {label}
@@ -27,27 +33,37 @@ export function Input({ label, error, className = '', style, ...props }: Props) 
       <TextInput
         placeholderTextColor={theme.colors.textMuted}
         className={className}
+        onFocus={(e) => {
+          setFocused(true)
+          onFocus?.(e)
+        }}
+        onBlur={(e) => {
+          setFocused(false)
+          onBlur?.(e)
+        }}
         style={[
           {
             width: '100%',
-            minHeight: 52,
-            borderRadius: 16,
-            paddingHorizontal: 20,
+            minHeight: 54,
+            borderRadius: radii.md,
+            paddingHorizontal: 18,
             paddingVertical: 14,
             fontSize: 16,
             backgroundColor: theme.colors.card,
             color: theme.colors.text,
-            borderColor: theme.colors.border,
-            borderWidth: 1,
+            borderColor: error
+              ? brand.danger
+              : focused
+                ? brand.primaryDark
+                : theme.colors.border,
+            borderWidth: focused || error ? 2 : 1,
           },
           style,
         ]}
         {...props}
       />
       {error ? (
-        <Text style={{ color: '#EF4444', fontSize: 14, marginTop: 6 }}>
-          {error}
-        </Text>
+        <Text style={{ color: brand.danger, fontSize: 13, marginTop: 6 }}>{error}</Text>
       ) : null}
     </View>
   )

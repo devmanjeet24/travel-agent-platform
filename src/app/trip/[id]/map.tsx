@@ -9,6 +9,7 @@ import {
 import { demoMapRegion } from '@/constants/trip-attractions'
 import { useTripItineraryQuery, useTripQuery } from '@/hooks/trips/use-trip-query'
 import { itineraryToAttractions, regionFromAttractions } from '@/utils/itinerary-map'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 export default function MapScreen() {
@@ -49,7 +50,7 @@ export default function MapScreen() {
   if (isLoading) {
     return (
       <View className={`flex-1 ${theme.bg} items-center justify-center`}>
-        <ActivityIndicator color="#0EA5E9" />
+        <ActivityIndicator color={brand.primaryDark} />
       </View>
     )
   }

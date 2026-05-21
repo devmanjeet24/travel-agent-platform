@@ -21,6 +21,7 @@ import { tripKeys } from '@/services/trips/trip-keys'
 import { formatTripDates } from '@/services/trips/trip-api'
 import { searchAndCacheHotels } from '@/services/travel/travel-api'
 import { exportTripPdf } from '@/lib/pdf-export'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 const sections: { label: string; route: string; icon: LucideIcon }[] = [
@@ -81,7 +82,7 @@ export default function TripOverviewScreen() {
   if (isLoading || !trip) {
     return (
       <View className={`flex-1 ${theme.bg} items-center justify-center`}>
-        <ActivityIndicator color="#0EA5E9" />
+        <ActivityIndicator color={brand.primaryDark} />
       </View>
     )
   }
@@ -93,7 +94,7 @@ export default function TripOverviewScreen() {
         <Text className={`${theme.textMuted} mt-1`}>
           {formatTripDates(trip.start_date, trip.end_date)} · {trip.travelers} travelers
         </Text>
-        <Text className="text-sky-500 font-medium mt-3 capitalize">{trip.status}</Text>
+        <Text className="text-yellow-600 font-medium mt-3 capitalize">{trip.status}</Text>
       </Card>
 
       <Button
@@ -121,8 +122,8 @@ export default function TripOverviewScreen() {
             onPress={() => router.push(`/trip/${id}/${s.route}` as never)}
             className="mb-3 flex-row items-center"
           >
-            <View className="bg-sky-500/20 p-3 rounded-xl mr-4">
-              <Icon size={22} color="#0EA5E9" />
+            <View className="bg-yellow-500/20 p-3 rounded-xl mr-4">
+              <Icon size={22} color={brand.primaryDark} />
             </View>
             <Text className={`${theme.text} font-semibold text-base flex-1`}>
               {s.label}
@@ -146,7 +147,7 @@ export default function TripOverviewScreen() {
         onPress={handleExportPdf}
       />
       <View className="flex-row items-center justify-center mt-3 gap-2">
-        <FileDown size={18} color="#8B5CF6" />
+        <FileDown size={18} color={brand.primaryDark} />
         <Text className={`${theme.textMuted} text-sm`}>Share itinerary & budget</Text>
       </View>
     </View>

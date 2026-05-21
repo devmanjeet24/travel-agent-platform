@@ -61,7 +61,7 @@ export function AttractionRow({
       <Text className={`${theme.textMuted} text-sm mt-1`}>
         {attraction.subtitle}
       </Text>
-      <Text className="text-sky-500 text-sm mt-2 font-medium">
+      <Text className="text-yellow-600 text-sm mt-2 font-medium">
         Open in map →
       </Text>
     </Pressable>

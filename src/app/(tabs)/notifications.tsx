@@ -16,6 +16,7 @@ import {
 } from '@/hooks/notifications/use-notifications-query'
 import { formatNotificationTime } from '@/services/notifications/notification-api'
 import type { NotificationRow } from '@/types/database'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 const iconMap: Record<NotificationRow['type'], LucideIcon> = {
@@ -32,14 +33,15 @@ export default function NotificationsScreen() {
   const markRead = useMarkNotificationReadMutation()
 
   return (
-    <ScreenWrapper scroll>
+    <ScreenWrapper scroll tabInset>
       <ScreenHeader
+        eyebrow="Inbox"
         title="Notifications"
         subtitle="Trip reminders and updates from your account"
       />
 
       {isLoading ? (
-        <ActivityIndicator className="mt-12" color="#0EA5E9" />
+        <ActivityIndicator className="mt-12" color={brand.primaryDark} />
       ) : !notifications?.length ? (
         <Text className={`${theme.textMuted} text-center mt-12`}>
           No notifications yet. Create a trip to receive reminders.
@@ -55,8 +57,8 @@ export default function NotificationsScreen() {
                 n.read ? 'opacity-70' : ''
               }`}
             >
-              <View className="bg-sky-500/20 p-3 rounded-xl mr-4 h-12 w-12 items-center justify-center">
-                <Icon size={22} color="#0EA5E9" />
+              <View className="bg-yellow-500/20 p-3 rounded-xl mr-4 h-12 w-12 items-center justify-center">
+                <Icon size={22} color={brand.primaryDark} />
               </View>
               <View className="flex-1">
                 <Text className={`${theme.text} font-semibold`}>{n.title}</Text>

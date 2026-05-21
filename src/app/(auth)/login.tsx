@@ -1,28 +1,31 @@
 import { useState } from 'react'
 import { Alert, Pressable, Text, View } from 'react-native'
 import { Link, useRouter } from 'expo-router'
-import { Plane } from 'lucide-react-native'
 
+import { PrimaryAuthButton } from '@/components/auth/PrimaryAuthButton'
+import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
+import { AuthShell } from '@/components/ui/AuthShell'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { brand } from '@/constants/design'
+import { isWeb } from '@/lib/ui-styles'
 import { useResetPasswordMutation } from '@/hooks/auth/use-reset-password-mutation'
 import { useSignInMutation } from '@/hooks/auth/use-sign-in-mutation'
+import { useSignOutMutation } from '@/hooks/auth/use-sign-out-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
 
 export default function LoginScreen() {
   const router = useRouter()
   const { colors } = useThemedStyles()
-  const { isConfigured } = useAuth()
+  const { isConfigured, session } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const signInMutation = useSignInMutation()
   const resetPasswordMutation = useResetPasswordMutation()
-
+  const signOutMutation = useSignOutMutation()
   const loading = signInMutation.isPending
 
   const handleSignIn = () => {
@@ -64,44 +67,35 @@ export default function LoginScreen() {
     )
   }
 
-  const handleOAuthPlaceholder = (provider: string) => {
-    Alert.alert(
-      `${provider} sign-in`,
-      `Enable ${provider} under Supabase → Authentication → Providers, then wire OAuth here.`,
-    )
+  const handleSignOut = () => {
+    signOutMutation.mutate(undefined, {
+      onSettled: () => router.replace('/(auth)/login'),
+    })
   }
 
   return (
-    <ScreenWrapper>
-      <View className="flex-1 justify-center py-8">
-        <View className="items-center mb-10">
-          <View
-            className="w-20 h-20 rounded-3xl items-center justify-center mb-5"
-            style={{ backgroundColor: `${brand.primary}44` }}
-          >
-            <Plane size={40} color={brand.primaryDark} />
-          </View>
-          <Text
-            className="text-4xl font-bold text-center"
-            style={{ color: colors.text }}
-          >
-            Welcome back
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to continue planning with your AI travel agent."
+    >
+      {session ? (
+        <View style={{ marginBottom: 20, gap: 12 }}>
+          <Text style={{ color: colors.textMuted, textAlign: 'center', fontSize: 14 }}>
+            You are already signed in.
           </Text>
-          <Text
-            className="mt-3 text-base text-center leading-6 px-2"
-            style={{ color: colors.textMuted }}
-          >
-            Sign in to continue planning with your AI travel agent.
-          </Text>
+          <Button title="Go to app" onPress={() => router.replace('/(tabs)')} />
+          <Button title="Sign out" variant="outline" onPress={handleSignOut} />
         </View>
+      ) : null}
 
-        {!isConfigured ? (
-          <Text className="text-amber-600 text-sm text-center mb-4 px-2">
-            Supabase is not configured. Copy .env.example to .env and add your keys.
-          </Text>
-        ) : null}
+      {!isConfigured ? (
+        <Text style={{ color: brand.warning, fontSize: 13, textAlign: 'center', marginBottom: 16 }}>
+          Supabase is not configured. Copy .env.example to .env and add your keys.
+        </Text>
+      ) : null}
 
-        <View className="gap-4">
+      {!session ? (
+        <View style={{ width: '100%' }}>
           <Input
             label="Email"
             placeholder="you@example.com"
@@ -116,46 +110,57 @@ export default function LoginScreen() {
             secureTextEntry
             value={password}
             onChangeText={setPassword}
-            error={error ?? undefined}
+            returnKeyType="go"
+            onSubmitEditing={handleSignIn}
           />
-        </View>
 
-        <Pressable className="mt-3 self-end" onPress={handleForgotPassword}>
-          <Text style={{ color: brand.primaryDark }} className="font-medium">
-            Forgot password?
-          </Text>
-        </Pressable>
-
-        <Button
-          title={loading ? 'Signing in…' : 'Sign in'}
-          className="mt-6"
-          onPress={handleSignIn}
-        />
-
-        <View className="flex-row gap-3 mt-5">
-          <Button
-            title="Google"
-            variant="outline"
-            className="flex-1"
-            onPress={() => handleOAuthPlaceholder('Google')}
-          />
-          <Button
-            title="Apple"
-            variant="outline"
-            className="flex-1"
-            onPress={() => handleOAuthPlaceholder('Apple')}
-          />
-        </View>
-
-        <Text className="text-center mt-8" style={{ color: colors.textMuted }}>
-          Don&apos;t have an account?{' '}
-          <Link href="/(auth)/signup" asChild>
-            <Text style={{ color: brand.primaryDark }} className="font-semibold">
-              Sign up
+          {error ? (
+            <Text
+              style={{
+                color: brand.danger,
+                fontSize: 14,
+                marginTop: -8,
+                marginBottom: 12,
+              }}
+            >
+              {error}
             </Text>
-          </Link>
-        </Text>
-      </View>
-    </ScreenWrapper>
+          ) : null}
+
+          <PrimaryAuthButton
+            title="Sign in"
+            loading={loading}
+            onPress={handleSignIn}
+          />
+
+          <Pressable
+            onPress={handleForgotPassword}
+            style={{ alignSelf: 'center', marginTop: 12, marginBottom: 16, paddingVertical: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Forgot password"
+          >
+            <Text style={{ color: brand.primaryDark, fontWeight: '600', fontSize: 14 }}>
+              Forgot password?
+            </Text>
+          </Pressable>
+
+          <SocialAuthButtons onError={setError} />
+
+          <Text
+            style={{
+              color: colors.textMuted,
+              textAlign: 'center',
+              marginTop: isWeb ? 24 : 20,
+              fontSize: 15,
+            }}
+          >
+            Don&apos;t have an account?{' '}
+            <Link href="/(auth)/signup" asChild>
+              <Text style={{ color: brand.primaryDark, fontWeight: '700' }}>Sign up</Text>
+            </Link>
+          </Text>
+        </View>
+      ) : null}
+    </AuthShell>
   )
 }

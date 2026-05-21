@@ -1,21 +1,21 @@
 import { Stack } from 'expo-router'
-import { useColorScheme } from 'react-native'
 
 import { RequireSession } from '@/components/auth/require-session'
+import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 export default function TripDetailLayout() {
-  const isDark = useColorScheme() !== 'light'
+  const { isDark, colors } = useThemedStyles()
 
   return (
     <RequireSession>
     <Stack
       screenOptions={{
         headerShown: true,
-        headerStyle: { backgroundColor: isDark ? '#020617' : '#F8FAFC' },
-        headerTintColor: isDark ? '#fff' : '#0f172a',
+        headerStyle: { backgroundColor: colors.background },
+        headerTintColor: colors.text,
         headerTitleStyle: { fontWeight: '600' },
         headerShadowVisible: false,
-        contentStyle: { backgroundColor: isDark ? '#020617' : '#F8FAFC' },
+        contentStyle: { backgroundColor: colors.background },
       }}
     >
       <Stack.Screen name="index" options={{ title: 'Trip overview' }} />

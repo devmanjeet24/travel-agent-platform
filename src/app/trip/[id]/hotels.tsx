@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card'
 import { useTripHotelsQuery, useTripQuery } from '@/hooks/trips/use-trip-query'
 import { tripKeys } from '@/services/trips/trip-keys'
 import { searchAndCacheHotels } from '@/services/travel/travel-api'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 export default function HotelsScreen() {
@@ -40,7 +41,7 @@ export default function HotelsScreen() {
       <Button title="Search hotels (OpenStreetMap)" variant="outline" onPress={refresh} />
 
       {isLoading ? (
-        <ActivityIndicator className="mt-8" color="#0EA5E9" />
+        <ActivityIndicator className="mt-8" color={brand.primaryDark} />
       ) : !hotels?.length ? (
         <Text className={`${theme.textMuted} mt-6 text-center`}>
           No hotels cached. Tap search to load real hotel names from OpenStreetMap (prices are estimates).
@@ -60,7 +61,7 @@ export default function HotelsScreen() {
                 </View>
               ) : null}
               <Text className={`${theme.textMuted} text-xs mt-2`}>OSM listing · estimated rate</Text>
-              <Text className="text-sky-500 font-bold mt-1">
+              <Text className="text-yellow-600 font-bold mt-1">
                 {h.price_per_night_usd != null
                   ? `$${Number(h.price_per_night_usd).toFixed(0)}/night`
                   : 'Price on request'}

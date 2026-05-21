@@ -6,14 +6,15 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "travelagentplatform",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "ios": {
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "package": "com.saurabh.travelagentplatform",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#F0F9FF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -33,12 +34,12 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#000000",
+          "backgroundColor": "#F0F9FF",
           "ios": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#F0F9FF"
           },
           "android": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#F0F9FF"
           }
         }
       ],

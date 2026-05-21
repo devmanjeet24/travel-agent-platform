@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { Link, useRouter } from 'expo-router'
-import { Plane } from 'lucide-react-native'
 
+import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
+import { AuthShell } from '@/components/ui/AuthShell'
+import { PrimaryAuthButton } from '@/components/auth/PrimaryAuthButton'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { brand } from '@/constants/design'
+import { isWeb, radii } from '@/lib/ui-styles'
 import { useSignUpMutation } from '@/hooks/auth/use-sign-up-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
@@ -54,86 +56,58 @@ export default function SignupScreen() {
   }
 
   return (
-    <ScreenWrapper scroll>
-      <View style={styles.header}>
-        <View
-          style={[styles.iconBox, { backgroundColor: `${brand.primary}44` }]}
-        >
-          <Plane size={40} color={brand.primaryDark} />
-        </View>
-        <Text
-          className="text-4xl font-bold text-center"
-          style={{ color: colors.text }}
-        >
-          Create account
-        </Text>
-        <Text
-          className="mt-3 text-base text-center leading-6 px-2"
-          style={{ color: colors.textMuted }}
-        >
-          Build your profile and start planning personalized trips.
-        </Text>
-      </View>
-
+    <AuthShell
+      title="Create account"
+      subtitle="Build your profile and start planning personalized trips."
+    >
       {!isConfigured ? (
-        <Text className="text-amber-600 text-sm text-center mb-4 px-2">
-          Supabase is not configured. Copy .env.example to .env and add your
-          keys.
+        <Text style={{ color: brand.warning, fontSize: 13, textAlign: 'center', marginBottom: 16 }}>
+          Supabase is not configured. Copy .env.example to .env and add your keys.
         </Text>
       ) : null}
 
       {confirmationSent ? (
         <View
-          style={[
-            styles.confirmationBox,
-            {
-              backgroundColor: `${brand.primary}18`,
-              borderColor: `${brand.primary}44`,
-            },
-          ]}
+          style={{
+            marginBottom: 16,
+            borderRadius: radii.md,
+            borderWidth: 1,
+            borderColor: brand.primary,
+            backgroundColor: brand.primaryLight,
+            padding: 16,
+          }}
         >
-          <Text
-            className="font-semibold text-base"
-            style={{ color: colors.text }}
-          >
-            Check your email
-          </Text>
-          <Text
-            className="mt-2 text-[15px] leading-[22px]"
-            style={{ color: colors.textMuted }}
-          >
-            We sent a confirmation link to {email.trim()}. Open it, then come
-            back here to sign in.
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16 }}>Check your email</Text>
+          <Text style={{ color: colors.textMuted, marginTop: 8, lineHeight: 22, fontSize: 15 }}>
+            We sent a confirmation link to {email.trim()}. Open it, then sign in.
           </Text>
         </View>
       ) : null}
 
-      <View className="gap-4">
-        <Input
-          label="Full name"
-          placeholder="Alex Rivera"
-          value={fullName}
-          onChangeText={setFullName}
-        />
-        <Input
-          label="Email"
-          placeholder="you@example.com"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <Input
-          label="Password"
-          placeholder="Min. 8 characters"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-          error={error ?? undefined}
-        />
-      </View>
+      <Input
+        label="Full name"
+        placeholder="Alex Rivera"
+        value={fullName}
+        onChangeText={setFullName}
+      />
+      <Input
+        label="Email"
+        placeholder="you@example.com"
+        keyboardType="email-address"
+        autoCapitalize="none"
+        value={email}
+        onChangeText={setEmail}
+      />
+      <Input
+        label="Password"
+        placeholder="Min. 8 characters"
+        secureTextEntry
+        value={password}
+        onChangeText={setPassword}
+        error={error ?? undefined}
+      />
 
-      <Button
+      <PrimaryAuthButton
         title={
           loading
             ? 'Creating account…'
@@ -141,41 +115,25 @@ export default function SignupScreen() {
               ? 'Resend confirmation'
               : 'Create account'
         }
+        loading={loading}
         onPress={handleSignUp}
-        className="mt-7"
       />
 
-      <Text className="text-center mt-7 text-[15px]" style={{ color: colors.textMuted }}>
+      <SocialAuthButtons onError={setError} />
+
+      <Text
+        style={{
+          color: colors.textMuted,
+          textAlign: 'center',
+          marginTop: isWeb ? 24 : 20,
+          fontSize: 15,
+        }}
+      >
         Already have an account?{' '}
         <Link href="/(auth)/login" asChild>
-          <Text style={{ color: brand.primaryDark }} className="font-semibold">
-            Sign in
-          </Text>
+          <Text style={{ color: brand.primaryDark, fontWeight: '700' }}>Sign in</Text>
         </Link>
       </Text>
-    </ScreenWrapper>
+    </AuthShell>
   )
 }
-
-const styles = StyleSheet.create({
-  header: {
-    alignItems: 'center',
-    marginBottom: 28,
-    marginTop: 8,
-  },
-  iconBox: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  confirmationBox: {
-    marginBottom: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-})

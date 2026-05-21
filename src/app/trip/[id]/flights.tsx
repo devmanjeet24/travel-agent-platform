@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card'
 import { useTripFlightsQuery, useTripQuery } from '@/hooks/trips/use-trip-query'
 import { tripKeys } from '@/services/trips/trip-keys'
 import { searchAndCacheFlights } from '@/services/travel/travel-api'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 export default function FlightsScreen() {
@@ -45,7 +46,7 @@ export default function FlightsScreen() {
       <Button title="Refresh flight estimates" variant="outline" onPress={refresh} />
 
       {isLoading ? (
-        <ActivityIndicator className="mt-8" color="#0EA5E9" />
+        <ActivityIndicator className="mt-8" color={brand.primaryDark} />
       ) : !flights?.length ? (
         <Text className={`${theme.textMuted} mt-6 text-center`}>
           No flights cached. Set origin city + start date, then refresh for OSM-based estimates.
@@ -54,7 +55,7 @@ export default function FlightsScreen() {
         flights.map((f) => (
           <Card key={f.id} className="mb-4">
             <View className="flex-row items-center gap-2 mb-3">
-              <Plane size={20} color="#0EA5E9" />
+              <Plane size={20} color={brand.primaryDark} />
               <Text className={`${theme.text} font-bold`}>{f.airline ?? 'Airline'}</Text>
             </View>
             <Text className={`${theme.text} text-lg font-semibold`}>{f.route}</Text>
@@ -62,7 +63,7 @@ export default function FlightsScreen() {
               {f.depart_time} → {f.arrive_time} · {f.stops}
             </Text>
             <Text className={`${theme.textMuted} text-xs mt-1`}>Estimated fare (not a live booking)</Text>
-            <Text className="text-sky-500 font-bold text-xl mt-1">
+            <Text className="text-yellow-600 font-bold text-xl mt-1">
               {f.price_usd != null ? `$${Number(f.price_usd).toFixed(0)}` : '—'}
             </Text>
           </Card>

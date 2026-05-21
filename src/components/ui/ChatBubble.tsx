@@ -1,34 +1,64 @@
-import { Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
+import { brand } from '@/constants/design'
+import { radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 interface Props {
   message: string
   role: 'user' | 'assistant'
   timestamp?: string
+  streaming?: boolean
 }
 
-export function ChatBubble({ message, role, timestamp }: Props) {
+export function ChatBubble({ message, role, timestamp, streaming }: Props) {
   const theme = useThemedStyles()
   const isUser = role === 'user'
 
   return (
     <View
-      className={`mb-4 max-w-[88%] ${isUser ? 'self-end items-end' : 'self-start items-start'}`}
+      style={{
+        marginBottom: 14,
+        maxWidth: '88%',
+        alignSelf: isUser ? 'flex-end' : 'flex-start',
+        alignItems: isUser ? 'flex-end' : 'flex-start',
+      }}
     >
       <View
-        className={`rounded-3xl px-5 py-4 ${
-          isUser
-            ? 'bg-sky-500 rounded-br-md'
-            : `${theme.bgCard} ${theme.border} border rounded-bl-md`
-        }`}
+        style={{
+          borderRadius: radii.xl,
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          backgroundColor: isUser ? brand.primaryDark : theme.colors.card,
+          borderWidth: isUser ? 0 : 1,
+          borderColor: theme.colors.border,
+          borderBottomRightRadius: isUser ? radii.sm : radii.xl,
+          borderBottomLeftRadius: isUser ? radii.xl : radii.sm,
+        }}
       >
-        <Text className={`text-base leading-6 ${isUser ? 'text-white' : theme.text}`}>
-          {message}
-        </Text>
+        {streaming && !message ? (
+          <ActivityIndicator size="small" color={brand.primaryDark} />
+        ) : (
+          <Text
+            style={{
+              fontSize: 16,
+              lineHeight: 24,
+              color: isUser ? brand.onPrimary : theme.colors.text,
+            }}
+          >
+            {message}
+          </Text>
+        )}
       </View>
       {timestamp ? (
-        <Text className={`${theme.textMuted} text-xs mt-1.5 px-1`}>
+        <Text
+          style={{
+            color: theme.colors.textMuted,
+            fontSize: 11,
+            marginTop: 6,
+            paddingHorizontal: 4,
+          }}
+        >
           {timestamp}
         </Text>
       ) : null}

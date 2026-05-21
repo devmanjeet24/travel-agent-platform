@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Pressable, Text, type PressableProps, type ViewStyle } from 'react-native'
 
 import { brand } from '@/constants/design'
+import { buttonShadow, radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger'
@@ -9,29 +11,6 @@ interface Props extends PressableProps {
   title: string
   variant?: Variant
   size?: 'sm' | 'md' | 'lg'
-  className?: string
-}
-
-const variantClasses: Record<Variant, string> = {
-  primary: 'active:opacity-90',
-  secondary: 'active:opacity-90',
-  outline: 'border-2',
-  ghost: '',
-  danger: 'active:opacity-90',
-}
-
-const textClasses: Record<Variant, string> = {
-  primary: 'text-white',
-  secondary: 'text-white',
-  outline: '',
-  ghost: '',
-  danger: 'text-white',
-}
-
-const sizeClasses = {
-  sm: 'py-2.5 px-4',
-  md: 'py-3.5 px-5',
-  lg: 'py-4 px-6',
 }
 
 function variantStyle(
@@ -40,68 +19,79 @@ function variantStyle(
 ): ViewStyle {
   switch (variant) {
     case 'primary':
-      return { backgroundColor: colors.primaryDark }
+      return { backgroundColor: brand.primaryDark }
     case 'secondary':
-      return { backgroundColor: colors.accent }
+      return { backgroundColor: brand.accent }
     case 'outline':
       return {
-        backgroundColor: 'transparent',
-        borderColor: colors.primaryDark,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1.5,
       }
     case 'ghost':
-      return { backgroundColor: 'transparent' }
+      return { backgroundColor: colors.muted }
     case 'danger':
       return { backgroundColor: brand.danger }
   }
 }
 
 function variantTextColor(variant: Variant, colors: ReturnType<typeof useThemedStyles>['colors']) {
-  if (variant === 'outline' || variant === 'ghost') return colors.primaryDark
-  return '#FFFFFF'
+  if (variant === 'primary' || variant === 'secondary' || variant === 'danger') {
+    return brand.onPrimary
+  }
+  return colors.text
+}
+
+const sizeStyles = {
+  sm: { paddingVertical: 10, paddingHorizontal: 18, minHeight: 44, fontSize: 14 },
+  md: { paddingVertical: 14, paddingHorizontal: 22, minHeight: 52, fontSize: 16 },
+  lg: { paddingVertical: 16, paddingHorizontal: 24, minHeight: 56, fontSize: 17 },
 }
 
 export function Button({
   title,
   variant = 'primary',
   size = 'md',
-  className = '',
   disabled,
-  style,
+  style: styleProp,
   ...props
 }: Props) {
-  const { colors } = useThemedStyles()
+  const { colors, isDark } = useThemedStyles()
+  const sizing = sizeStyles[size]
+  const [pressed, setPressed] = useState(false)
 
-  const sizeStyle =
-    size === 'sm'
-      ? { paddingVertical: 10, paddingHorizontal: 16, minHeight: 44 }
-      : size === 'lg'
-        ? { paddingVertical: 16, paddingHorizontal: 24, minHeight: 56 }
-        : { paddingVertical: 14, paddingHorizontal: 20, minHeight: 52 }
+  const flatExtra =
+    typeof styleProp === 'function' ? undefined : styleProp
 
   return (
     <Pressable
-      className={`${variantClasses[variant]} ${sizeClasses[size]} ${disabled ? 'opacity-50' : ''} ${className}`}
+      accessibilityRole="button"
+      disabled={disabled}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
       style={[
         {
-          borderRadius: 16,
+          borderRadius: radii.pill,
           alignItems: 'center',
           justifyContent: 'center',
+          alignSelf: 'stretch',
           width: '100%',
+          minHeight: sizing.minHeight,
+          paddingVertical: sizing.paddingVertical,
+          paddingHorizontal: sizing.paddingHorizontal,
+          opacity: disabled ? 0.55 : pressed ? 0.88 : 1,
         },
-        sizeStyle,
         variantStyle(variant, colors),
-        disabled ? { opacity: 0.5 } : undefined,
-        style,
+        variant === 'primary' ? buttonShadow(isDark) : undefined,
+        flatExtra,
       ]}
-      disabled={disabled}
       {...props}
     >
       <Text
-        className={textClasses[variant]}
         style={{
           color: variantTextColor(variant, colors),
-          fontSize: 16,
-          fontWeight: '600',
+          fontSize: sizing.fontSize,
+          fontWeight: '700',
         }}
       >
         {title}

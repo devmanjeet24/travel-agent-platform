@@ -10,13 +10,18 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { useLocalSearchParams } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
 import * as ImagePicker from 'expo-image-picker'
-import { Image as ImageIcon, Mic, Paperclip, Send, X } from 'lucide-react-native'
+import { Image as ImageIcon, Mic, Paperclip, Send, Sparkles, X } from 'lucide-react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { ChatBubble } from '@/components/ui/ChatBubble'
-import ScreenWrapper from '@/components/ui/ScreenWrapper'
+import { brand } from '@/constants/design'
+import { useResponsive } from '@/hooks/use-responsive'
+import { useTabScreenInsets } from '@/hooks/use-tab-screen-insets'
+import { cardShadow, radii } from '@/lib/ui-styles'
 import { sendChatWithStream } from '@/lib/edge-fetch'
 import { createVoiceRecorder } from '@/lib/voice-recording'
 import {
@@ -43,11 +48,13 @@ function toHistory(messages: ChatMessage[]): ChatHistoryItem[] {
 export default function ChatScreen() {
   const theme = useThemedStyles()
   const { user } = useAuth()
+  const insets = useSafeAreaInsets()
+  const tabBarHeight = useBottomTabBarHeight()
+  const { horizontalPadding, scaleFont, contentWidth, isSmallPhone } = useResponsive()
+  const tabInsets = useTabScreenInsets()
   const params = useLocalSearchParams<{ tripId?: string; conversationId?: string }>()
   const listRef = useRef<FlatList<ChatMessage>>(null)
-  const voiceRecorderRef = useRef<Awaited<ReturnType<typeof createVoiceRecorder>> | null>(
-    null,
-  )
+  const voiceRecorderRef = useRef<Awaited<ReturnType<typeof createVoiceRecorder>> | null>(null)
 
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -55,10 +62,13 @@ export default function ChatScreen() {
   const [warning, setWarning] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
-  const [conversationId, setConversationId] = useState<string | undefined>(
-    params.conversationId,
-  )
+  const [conversationId, setConversationId] = useState<string | undefined>(params.conversationId)
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
+
+  const composerBottomPad = tabInsets.composerBottomPadding
+  const keyboardOffset =
+    Platform.OS === 'ios' ? tabBarHeight + insets.top : Platform.OS === 'android' ? 0 : 0
+  const listPadX = horizontalPadding
 
   const scrollToEnd = useCallback(() => {
     requestAnimationFrame(() => {
@@ -69,9 +79,7 @@ export default function ChatScreen() {
   useEffect(() => {
     void (async () => {
       try {
-        const convId =
-          params.conversationId ??
-          (await fetchLatestConversation())?.id
+        const convId = params.conversationId ?? (await fetchLatestConversation())?.id
         if (!convId) return
 
         const rows = await fetchConversationMessages(convId)
@@ -157,9 +165,7 @@ export default function ChatScreen() {
           if (w) setWarning(w)
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: reply, streaming: false }
-                : m,
+              m.id === assistantId ? { ...m, content: reply, streaming: false } : m,
             ),
           )
           setIsSending(false)
@@ -219,16 +225,8 @@ export default function ChatScreen() {
     const ext = asset.uri.split('.').pop()?.toLowerCase() ?? 'jpg'
     const mime = ext === 'png' ? 'image/png' : 'image/jpeg'
     try {
-      const url = await uploadChatAttachment(
-        user.id,
-        asset.uri,
-        `photo.${ext}`,
-        mime,
-      )
-      setPendingAttachments((prev) => [
-        ...prev,
-        { url, name: `photo.${ext}`, type: mime },
-      ])
+      const url = await uploadChatAttachment(user.id, asset.uri, `photo.${ext}`, mime)
+      setPendingAttachments((prev) => [...prev, { url, name: `photo.${ext}`, type: mime }])
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Image upload failed')
@@ -269,49 +267,129 @@ export default function ChatScreen() {
     setPendingAttachments((prev) => prev.filter((a) => a.url !== url))
   }
 
+  const canSend = (input.trim().length > 0 || pendingAttachments.length > 0) && !isSending
+
   return (
-    <ScreenWrapper padded={false}>
+    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+        keyboardVerticalOffset={keyboardOffset}
       >
-        <View className="px-5 pt-2 pb-3">
-          <Text className={`${theme.text} text-2xl font-bold`}>AI Travel Agent</Text>
-          <Text className={`${theme.textMuted} text-sm mt-0.5`}>
-            Open-Meteo weather · OSM hotels · streaming · voice · saved history
-          </Text>
+        <View
+          style={{
+            paddingTop: Platform.OS === 'android' ? 8 : insets.top + 8,
+            paddingHorizontal: listPadX,
+            paddingBottom: 12,
+            borderBottomWidth: 1,
+            borderBottomColor: theme.colors.border,
+            backgroundColor: theme.colors.card,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                backgroundColor: brand.primaryLight,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Sparkles size={22} color={brand.primaryDark} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  color: theme.colors.text,
+                  fontSize: scaleFont(18),
+                  fontWeight: '800',
+                }}
+              >
+                AI Travel Agent
+              </Text>
+              <Text
+                style={{
+                  color: theme.colors.textMuted,
+                  fontSize: scaleFont(13),
+                  marginTop: 2,
+                }}
+              >
+                Live weather · hotels · itineraries
+              </Text>
+            </View>
+          </View>
         </View>
 
         {error ? (
-          <View className="mx-5 mb-2 px-4 py-3 rounded-2xl bg-red-500/10 border border-red-500/30">
-            <Text className="text-red-500 text-sm">{error}</Text>
+          <View
+            style={{
+              marginHorizontal: listPadX,
+              marginTop: 8,
+              padding: 12,
+              borderRadius: radii.md,
+              backgroundColor: `${brand.danger}15`,
+              borderWidth: 1,
+              borderColor: `${brand.danger}40`,
+            }}
+          >
+            <Text style={{ color: brand.danger, fontSize: 13 }}>{error}</Text>
           </View>
         ) : null}
 
         {warning ? (
-          <View className="mx-5 mb-2 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/30">
-            <Text className="text-amber-600 text-sm">{warning}</Text>
+          <View
+            style={{
+              marginHorizontal: listPadX,
+              marginTop: 8,
+              padding: 12,
+              borderRadius: radii.md,
+              backgroundColor: `${brand.warning}15`,
+              borderWidth: 1,
+              borderColor: `${brand.warning}40`,
+            }}
+          >
+            <Text style={{ color: brand.warning, fontSize: 13 }}>{warning}</Text>
           </View>
         ) : null}
 
         {pendingAttachments.length > 0 ? (
-          <View className="flex-row flex-wrap gap-2 mx-5 mb-2">
+          <View
+            style={{
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              gap: 8,
+              margin: 12,
+              marginHorizontal: listPadX,
+            }}
+          >
             {pendingAttachments.map((a) => (
               <View
                 key={a.url}
-                className={`${theme.bgCard} border ${theme.border} rounded-xl p-2 flex-row items-center`}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: theme.colors.card,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  borderRadius: radii.md,
+                  padding: 8,
+                }}
               >
                 {a.type.startsWith('image/') ? (
-                  <Image source={{ uri: a.url }} className="w-10 h-10 rounded-lg mr-2" />
+                  <Image source={{ uri: a.url }} style={{ width: 40, height: 40, borderRadius: 8 }} />
                 ) : (
-                  <Paperclip size={18} color="#0EA5E9" />
+                  <Paperclip size={18} color={brand.primaryDark} />
                 )}
-                <Text className={`${theme.textMuted} text-xs max-w-[100px]`} numberOfLines={1}>
+                <Text
+                  style={{ color: theme.colors.textMuted, fontSize: 12, maxWidth: 80, marginLeft: 8 }}
+                  numberOfLines={1}
+                >
                   {a.name}
                 </Text>
-                <Pressable onPress={() => removeAttachment(a.url)} className="ml-2 p-1">
-                  <X size={14} color="#94A3B8" />
+                <Pressable onPress={() => removeAttachment(a.url)} style={{ marginLeft: 8, padding: 4 }}>
+                  <X size={14} color={theme.colors.icon} />
                 </Pressable>
               </View>
             ))}
@@ -320,17 +398,56 @@ export default function ChatScreen() {
 
         <FlatList
           ref={listRef}
-          className="flex-1"
           data={messages}
           keyExtractor={(item) => item.id}
-          contentContainerClassName="px-5 pb-4 grow"
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: listPadX,
+            paddingTop: 12,
+            paddingBottom: 16,
+            flexGrow: 1,
+          }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           showsVerticalScrollIndicator={false}
           onContentSizeChange={scrollToEnd}
           ListEmptyComponent={
-            <Text className={`${theme.textMuted} text-center mt-8 px-4 leading-6`}>
-              Plan a trip with live data — e.g. &quot;5 days in Bali in August, 2 people,
-              $3000 budget, flying from Delhi.&quot;
-            </Text>
+            <View style={{ alignItems: 'center', paddingTop: 48, paddingHorizontal: 24 }}>
+              <View
+                style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: 36,
+                  backgroundColor: brand.primaryLight,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 16,
+                }}
+              >
+                <Sparkles size={32} color={brand.primaryDark} />
+              </View>
+              <Text
+                style={{
+                  color: theme.colors.text,
+                  fontSize: 18,
+                  fontWeight: '700',
+                  textAlign: 'center',
+                }}
+              >
+                Start planning your trip
+              </Text>
+              <Text
+                style={{
+                  color: theme.colors.textMuted,
+                  textAlign: 'center',
+                  marginTop: 8,
+                  lineHeight: 22,
+                  fontSize: 15,
+                }}
+              >
+                Try: &quot;5 days in Bali in August, 2 people, $3000 budget, flying from Delhi.&quot;
+              </Text>
+            </View>
           }
           renderItem={({ item }) => (
             <View>
@@ -338,63 +455,116 @@ export default function ChatScreen() {
                 message={item.content || (item.streaming ? '…' : '')}
                 role={item.role}
                 timestamp={item.timestamp}
+                streaming={item.streaming}
               />
-              {item.attachments?.length
-                ? item.attachments.map((a) =>
-                    a.type.startsWith('image/') ? (
-                      <Image
-                        key={a.url}
-                        source={{ uri: a.url }}
-                        className="w-40 h-28 rounded-xl mt-1 mb-3 self-end"
-                      />
-                    ) : null,
-                  )
-                : null}
+              {item.attachments?.map((a) =>
+                a.type.startsWith('image/') ? (
+                  <Image
+                    key={a.url}
+                    source={{ uri: a.url }}
+                    style={{
+                      width: 160,
+                      height: 112,
+                      borderRadius: radii.md,
+                      marginTop: 4,
+                      marginBottom: 12,
+                      alignSelf: 'flex-end',
+                    }}
+                  />
+                ) : null,
+              )}
             </View>
           )}
         />
 
-        <View className={`px-5 pb-4 pt-2 border-t ${theme.border}`}>
+        <View
+          style={{
+            paddingHorizontal: listPadX,
+            paddingTop: 10,
+            paddingBottom: composerBottomPad,
+            borderTopWidth: 1,
+            borderTopColor: theme.colors.border,
+            backgroundColor: theme.colors.background,
+          }}
+        >
           <View
-            className={`${theme.bgCard} ${theme.border} border rounded-3xl px-4 py-3 flex-row items-end gap-2`}
+            style={[
+              {
+                flexDirection: 'row',
+                alignItems: 'flex-end',
+                backgroundColor: theme.colors.card,
+                borderRadius: radii.xl,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                paddingHorizontal: 8,
+                paddingVertical: 8,
+                maxWidth: contentWidth,
+                alignSelf: 'center',
+                width: '100%',
+              },
+              cardShadow(theme.isDark),
+            ]}
           >
-            <Pressable className="p-2" onPress={pickAttachment} accessibilityLabel="Attach file">
-              <Paperclip size={22} color={theme.isDark ? '#94A3B8' : '#64748B'} />
+            <Pressable style={{ padding: isSmallPhone ? 8 : 10 }} onPress={pickAttachment}>
+              <Paperclip size={isSmallPhone ? 20 : 22} color={theme.colors.icon} />
             </Pressable>
-            <Pressable className="p-2" onPress={pickImage} accessibilityLabel="Attach image">
-              <ImageIcon size={22} color="#0EA5E9" />
+            <Pressable style={{ padding: isSmallPhone ? 8 : 10 }} onPress={pickImage}>
+              <ImageIcon size={isSmallPhone ? 20 : 22} color={brand.primaryDark} />
             </Pressable>
             <TextInput
-              placeholder="Describe your trip..."
-              placeholderTextColor={theme.isDark ? '#94A3B8' : '#64748B'}
+              placeholder="Message your travel agent..."
+              placeholderTextColor={theme.colors.textMuted}
               multiline
               value={input}
               onChangeText={setInput}
               editable={!isSending}
-              className={`flex-1 ${theme.text} text-base max-h-28 py-2`}
+              onSubmitEditing={() => {
+                if (canSend) void handleSend()
+              }}
+              blurOnSubmit={false}
+              style={{
+                flex: 1,
+                color: theme.colors.text,
+                fontSize: scaleFont(16),
+                lineHeight: 22,
+                maxHeight: 120,
+                paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+                paddingHorizontal: 4,
+              }}
             />
             <Pressable
-              className={`p-2 ${isRecording ? 'bg-red-500/20 rounded-full' : ''}`}
+              style={{
+                padding: 10,
+                borderRadius: radii.pill,
+                backgroundColor: isRecording ? `${brand.danger}18` : 'transparent',
+              }}
               onPress={toggleRecording}
               disabled={isSending}
-              accessibilityLabel="Voice input"
             >
-              <Mic size={22} color={isRecording ? '#EF4444' : '#0EA5E9'} />
+              <Mic size={22} color={isRecording ? brand.danger : brand.primaryDark} />
             </Pressable>
             <Pressable
-              className={`bg-sky-500 p-2.5 rounded-full ${!input.trim() && !pendingAttachments.length ? 'opacity-50' : ''}`}
-              onPress={handleSend}
-              disabled={(!input.trim() && !pendingAttachments.length) || isSending}
+              onPress={() => void handleSend()}
+              disabled={!canSend}
+              style={{
+                width: isSmallPhone ? 40 : 44,
+                height: isSmallPhone ? 40 : 44,
+                borderRadius: isSmallPhone ? 20 : 22,
+                backgroundColor: canSend ? brand.primaryDark : theme.colors.muted,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginLeft: 4,
+              }}
             >
               {isSending ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={brand.onPrimary} />
               ) : (
-                <Send size={20} color="#fff" />
+                <Send size={20} color={canSend ? brand.onPrimary : theme.colors.icon} />
               )}
             </Pressable>
           </View>
         </View>
       </KeyboardAvoidingView>
-    </ScreenWrapper>
+    </View>
   )
 }

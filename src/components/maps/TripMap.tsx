@@ -21,6 +21,7 @@ import {
   mapsNavigationUrl,
   type LatLng,
 } from '@/services/osrm.service';
+import { brand } from '@/constants/design';
 import { useThemedStyles } from '@/hooks/use-themed-styles';
 
 type Props = {
@@ -83,7 +84,7 @@ export function TripMap({
           {routeCoords.length > 0 ? (
             <Polyline
               coordinates={routeCoords}
-              strokeColor="#0EA5E9"
+              strokeColor={brand.primaryDark}
               strokeWidth={4}
             />
           ) : null}
@@ -98,7 +99,7 @@ export function TripMap({
         </MapView>
         {loadingRoute ? (
           <View className="absolute inset-0 items-center justify-center bg-black/20">
-            <ActivityIndicator color="#0EA5E9" />
+            <ActivityIndicator color={brand.primaryDark} />
           </View>
         ) : null}
       </View>
@@ -134,7 +135,7 @@ export function AttractionRow({
       <Text className={`${theme.textMuted} text-sm mt-1`}>
         {attraction.subtitle}
       </Text>
-      <Text className="text-sky-500 text-sm mt-2 font-medium">
+      <Text className="text-yellow-600 text-sm mt-2 font-medium">
         Open in map →
       </Text>
     </Pressable>

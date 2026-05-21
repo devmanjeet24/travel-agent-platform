@@ -6,9 +6,15 @@ module.exports = {
     extend: {
       colors: {
         brand: {
-          primary: '#0EA5E9',
-          accent: '#8B5CF6',
+          primary: '#38BDF8',
+          dark: '#0EA5E9',
+          accent: '#06B6D4',
+          sky: '#F0F9FF',
         },
+      },
+      borderRadius: {
+        '4xl': '2rem',
+        '5xl': '2.5rem',
       },
     },
   },

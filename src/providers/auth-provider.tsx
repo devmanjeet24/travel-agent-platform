@@ -5,11 +5,13 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
+import { Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Session, User } from '@supabase/supabase-js';
 
 import { useAuthSessionQuery } from '@/hooks/auth/use-auth-session-query';
 import { isSupabaseConfigured } from '@/lib/env';
+import { finishOAuthFromUrl } from '@/lib/oauth';
 import { getSupabaseOrNull } from '@/lib/supabase';
 import { authKeys, getUserDisplayName } from '@/services/auth';
 
@@ -32,6 +34,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!isConfigured) return;
     const supabase = getSupabaseOrNull();
     if (!supabase) return;
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const href = window.location.href;
+      if (href.includes('access_token=') || href.includes('code=')) {
+        void finishOAuthFromUrl(href).then(() => {
+          window.history.replaceState({}, document.title, '/');
+          void queryClient.invalidateQueries({ queryKey: authKeys.session() });
+        });
+      }
+    }
 
     const {
       data: { subscription },

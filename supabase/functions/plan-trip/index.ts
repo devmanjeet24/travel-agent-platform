@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
 Schema:
 {
   "itinerary": [{"day":1,"title":"...","activities":[{"time":"09:00","name":"...","cost_usd":0,"transport":"...","notes":"...","lat":null,"lon":null}]}],
-  "budget": [{"label":"Flights","amount_usd":0,"color":"#0EA5E9"},{"label":"Hotels","amount_usd":0,"color":"#8B5CF6"},{"label":"Food","amount_usd":0,"color":"#10B981"},{"label":"Activities","amount_usd":0,"color":"#EC4899"},{"label":"Transport","amount_usd":0,"color":"#F59E0B"},{"label":"Misc","amount_usd":0,"color":"#64748B"}],
+  "budget": [{"label":"Flights","amount_usd":0,"color":"#EAB308"},{"label":"Hotels","amount_usd":0,"color":"#000000"},{"label":"Food","amount_usd":0,"color":"#16A34A"},{"label":"Activities","amount_usd":0,"color":"#FACC15"},{"label":"Transport","amount_usd":0,"color":"#CA8A04"},{"label":"Misc","amount_usd":0,"color":"#737373"}],
   "packing": ["item1","item2"]
 }
 Rules:
