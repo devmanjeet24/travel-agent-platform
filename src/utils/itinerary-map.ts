@@ -1,5 +1,6 @@
 import type { ItineraryActivityRow, ItineraryDayRow } from '@/types/database';
 import type { TripAttraction } from '@/constants/trip-attractions';
+import { isValidCoordinate } from '@/lib/map-coordinates';
 
 export function itineraryToAttractions(
   days: Array<ItineraryDayRow & { activities: ItineraryActivityRow[] }>,
@@ -8,14 +9,14 @@ export function itineraryToAttractions(
   for (const day of days) {
     for (const act of day.activities) {
       if (act.latitude != null && act.longitude != null) {
+        const latitude = Number(act.latitude);
+        const longitude = Number(act.longitude);
+        if (!isValidCoordinate(latitude, longitude)) continue;
         attractions.push({
           id: act.id,
           title: act.name,
           subtitle: `Day ${day.day_number} · ${act.activity_time ?? ''}`,
-          coordinate: {
-            latitude: act.latitude,
-            longitude: act.longitude,
-          },
+          coordinate: { latitude, longitude },
         });
       }
     }
@@ -31,9 +32,12 @@ export function regionFromAttractions(
   latitudeDelta: number;
   longitudeDelta: number;
 } | null {
-  if (!attractions.length) return null;
-  const lats = attractions.map((a) => a.coordinate.latitude);
-  const lons = attractions.map((a) => a.coordinate.longitude);
+  const valid = attractions.filter((a) =>
+    isValidCoordinate(a.coordinate.latitude, a.coordinate.longitude),
+  );
+  if (!valid.length) return null;
+  const lats = valid.map((a) => a.coordinate.latitude);
+  const lons = valid.map((a) => a.coordinate.longitude);
   const minLat = Math.min(...lats);
   const maxLat = Math.max(...lats);
   const minLon = Math.min(...lons);

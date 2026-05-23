@@ -1,6 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
 
-import { createVoiceRecorder, transcribeFromUri } from '@/lib/voice-recording';
+import {
+  createVoiceRecorder,
+  releaseActiveNativeRecording,
+  transcribeFromUri,
+} from '@/lib/voice-recording';
 import { isSpeaking, speakText, stopSpeaking } from '@/lib/voice-tts';
 
 export type VoiceAssistantPhase = 'idle' | 'recording' | 'transcribing' | 'speaking';
@@ -12,76 +16,104 @@ type Options = {
 
 export function useVoiceAssistant({ onTranscript, onError }: Options) {
   const recorderRef = useRef<Awaited<ReturnType<typeof createVoiceRecorder>> | null>(null);
+  const phaseRef = useRef<VoiceAssistantPhase>('idle');
+  const sessionLockRef = useRef(false);
   const [phase, setPhase] = useState<VoiceAssistantPhase>('idle');
 
+  const setPhaseSafe = useCallback((next: VoiceAssistantPhase) => {
+    phaseRef.current = next;
+    setPhase(next);
+  }, []);
+
+  const teardownRecorder = useCallback(async () => {
+    const rec = recorderRef.current;
+    recorderRef.current = null;
+    if (rec) {
+      await rec.cancel();
+    }
+    await releaseActiveNativeRecording();
+  }, []);
+
   const startRecording = useCallback(async () => {
+    if (sessionLockRef.current) return;
+    if (phaseRef.current !== 'idle') return;
+
+    sessionLockRef.current = true;
     try {
       await stopSpeaking();
-      recorderRef.current = await createVoiceRecorder();
-      await recorderRef.current.start();
-      setPhase('recording');
+      await teardownRecorder();
+
+      const recorder = await createVoiceRecorder();
+      recorderRef.current = recorder;
+      await recorder.start();
+      setPhaseSafe('recording');
     } catch (e) {
+      await teardownRecorder();
       onError(e instanceof Error ? e.message : 'Could not start recording');
-      setPhase('idle');
+      setPhaseSafe('idle');
+    } finally {
+      sessionLockRef.current = false;
     }
-  }, [onError]);
+  }, [onError, setPhaseSafe, teardownRecorder]);
 
   const stopRecordingAndSend = useCallback(async () => {
-    if (phase !== 'recording') return;
+    if (phaseRef.current !== 'recording' || sessionLockRef.current) return;
 
-    setPhase('transcribing');
+    sessionLockRef.current = true;
+    setPhaseSafe('transcribing');
     try {
       const rec = recorderRef.current;
-      const uri = rec ? await rec.stop() : null;
       recorderRef.current = null;
+      const uri = rec ? await rec.stop() : null;
       if (!uri) {
-        setPhase('idle');
+        setPhaseSafe('idle');
         return;
       }
 
       const text = await transcribeFromUri(uri);
       if (!text) {
         onError('No speech detected. Try again.');
-        setPhase('idle');
+        setPhaseSafe('idle');
         return;
       }
 
       await onTranscript(text);
-      setPhase('idle');
+      setPhaseSafe('idle');
     } catch (e) {
       onError(e instanceof Error ? e.message : 'Transcription failed');
-      setPhase('idle');
+      setPhaseSafe('idle');
+    } finally {
+      sessionLockRef.current = false;
     }
-  }, [phase, onTranscript, onError]);
+  }, [onTranscript, onError, setPhaseSafe]);
 
   const cancelRecording = useCallback(async () => {
-    const rec = recorderRef.current;
-    if (rec) {
-      await rec.cancel();
-      recorderRef.current = null;
-    }
-    setPhase('idle');
-  }, []);
+    await teardownRecorder();
+    setPhaseSafe('idle');
+  }, [setPhaseSafe, teardownRecorder]);
 
   const toggleRecording = useCallback(async () => {
-    if (phase === 'recording') {
+    if (phaseRef.current === 'recording') {
       await stopRecordingAndSend();
       return;
     }
-    if (phase === 'transcribing' || phase === 'speaking') return;
+    if (phaseRef.current !== 'idle') return;
     await startRecording();
-  }, [phase, startRecording, stopRecordingAndSend]);
+  }, [startRecording, stopRecordingAndSend]);
 
-  const speakReply = useCallback(async (reply: string) => {
-    setPhase('speaking');
-    await speakText(reply, () => setPhase('idle'));
-  }, []);
+  const speakReply = useCallback(
+    async (reply: string) => {
+      setPhaseSafe('speaking');
+      await speakText(reply, () => setPhaseSafe('idle'));
+    },
+    [setPhaseSafe],
+  );
 
   const interrupt = useCallback(async () => {
     await stopSpeaking();
     await cancelRecording();
-    setPhase('idle');
-  }, [cancelRecording]);
+    setPhaseSafe('idle');
+  }, [cancelRecording, setPhaseSafe]);
 
   const checkSpeaking = useCallback(async () => isSpeaking(), []);
 

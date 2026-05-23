@@ -39,7 +39,6 @@ Cross-platform travel planning app (Expo + React Native + TypeScript + Supabase 
 |----------|----------|
 | `EXPO_PUBLIC_SUPABASE_URL` | Yes |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes |
-| `EXPO_PUBLIC_MAP_TILE_URL` | No |
 | `EXPO_PUBLIC_OSRM_BASE_URL` | No |
 
 Server secret (`GROQ_API_KEY`) goes in **Supabase Edge Functions**, not in the mobile `.env`.

@@ -6,6 +6,7 @@ import type {
   ItineraryDayRow,
   TripRow,
 } from '@/types/database';
+import { resolveActivityCostInr } from '@/utils/activity-cost';
 import { formatInr } from '@/utils/currency';
 
 type ItineraryDay = ItineraryDayRow & { activities: ItineraryActivityRow[] };
@@ -26,7 +27,7 @@ export async function exportTripPdf(params: {
         ${d.activities
           .map(
             (a) =>
-              `<li><strong>${a.activity_time ?? ''}</strong> ${a.name} — ${formatInr(a.cost_usd)} · ${a.transport ?? ''}</li>`,
+              `<li><strong>${a.activity_time ?? ''}</strong> ${a.name} — ${formatInr(resolveActivityCostInr({ cost: a.cost_usd, name: a.name, transport: a.transport, travelers: trip.travelers }))} · ${a.transport ?? ''}</li>`,
           )
           .join('')}
       </ul>`,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -6,20 +6,21 @@ import {
   Text,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
+import { Image } from 'expo-image';
+import { MapPin } from 'lucide-react-native';
 
 import {
   demoBaliAttractions,
   demoMapRegion,
   type TripAttraction,
 } from '@/constants/trip-attractions';
-import { getMapTileUrl } from '@/lib/env';
+import { isValidCoordinate, sanitizeMapRegion } from '@/lib/map-coordinates';
+import { buildOsmStaticMapUrl, openOsmOverviewUrl } from '@/lib/osm-map';
 import {
   fetchDrivingRoute,
   formatDistance,
   formatDuration,
   mapsNavigationUrl,
-  type LatLng,
 } from '@/services/osrm.service';
 import { brand } from '@/constants/design';
 import { useThemedStyles } from '@/hooks/use-themed-styles';
@@ -29,32 +30,76 @@ type Props = {
   initialRegion?: typeof demoMapRegion;
 };
 
+function filterValidAttractions(attractions: TripAttraction[]): TripAttraction[] {
+  return attractions.filter((a) =>
+    isValidCoordinate(a.coordinate.latitude, a.coordinate.longitude),
+  );
+}
+
 export function TripMap({
   attractions = demoBaliAttractions,
   initialRegion = demoMapRegion,
 }: Props) {
   const theme = useThemedStyles();
-  const [routeCoords, setRouteCoords] = useState<LatLng[]>([]);
+  const region = useMemo(
+    () => sanitizeMapRegion(initialRegion),
+    [initialRegion],
+  );
+  const validAttractions = useMemo(
+    () => filterValidAttractions(attractions),
+    [attractions],
+  );
+
   const [routeMeta, setRouteMeta] = useState<{
     distance: string;
     duration: string;
   } | null>(null);
-  const [loadingRoute, setLoadingRoute] = useState(true);
+  const [loadingRoute, setLoadingRoute] = useState(validAttractions.length >= 2);
+  const [previewFailed, setPreviewFailed] = useState(false);
+
+  const center = useMemo(
+    () => ({
+      latitude: region.latitude,
+      longitude: region.longitude,
+    }),
+    [region.latitude, region.longitude],
+  );
+
+  const staticMapUri = useMemo(
+    () =>
+      buildOsmStaticMapUrl({
+        center,
+        latitudeDelta: region.latitudeDelta,
+        markers: validAttractions.map((a) => a.coordinate),
+      }),
+    [center, region.latitudeDelta, validAttractions],
+  );
 
   useEffect(() => {
+    setPreviewFailed(false);
+  }, [staticMapUri]);
+
+  useEffect(() => {
+    if (validAttractions.length < 2) {
+      setRouteMeta(null);
+      setLoadingRoute(false);
+      return;
+    }
+
     let cancelled = false;
-    const waypoints = attractions.map((a) => a.coordinate);
+    const waypoints = validAttractions.map((a) => a.coordinate);
 
     (async () => {
       setLoadingRoute(true);
       const route = await fetchDrivingRoute(waypoints);
       if (cancelled) return;
       if (route) {
-        setRouteCoords(route.coordinates);
         setRouteMeta({
           distance: formatDistance(route.distanceMeters),
           duration: formatDuration(route.durationSeconds),
         });
+      } else {
+        setRouteMeta(null);
       }
       setLoadingRoute(false);
     })();
@@ -62,56 +107,83 @@ export function TripMap({
     return () => {
       cancelled = true;
     };
-  }, [attractions]);
+  }, [validAttractions]);
 
-  const tileUrl = getMapTileUrl();
+  const openOverview = () => {
+    void Linking.openURL(openOsmOverviewUrl(center, region.latitudeDelta));
+  };
+
+  if (!validAttractions.length) {
+    return (
+      <View className="flex-1 min-h-[280px] rounded-2xl overflow-hidden mb-3">
+        <Pressable
+          onPress={openOverview}
+          className={`${theme.bgMuted} flex-1 items-center justify-center px-6`}
+        >
+          <MapPin size={40} color={brand.primaryDark} />
+          <Text className={`${theme.text} font-semibold mt-3`}>
+            View on OpenStreetMap
+          </Text>
+          <Text className={`${theme.textMuted} text-sm mt-2 text-center`}>
+            Tap to open the map in your browser.
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1">
-      <View className="flex-1 min-h-[280px] rounded-2xl overflow-hidden mb-3">
-        <MapView
-          style={{ flex: 1 }}
-          initialRegion={initialRegion}
-          showsUserLocation={false}
-          showsCompass
-        >
-          <UrlTile
-            urlTemplate={tileUrl}
-            maximumZ={19}
-            flipY={false}
-            zIndex={-1}
+      <Pressable
+        onPress={openOverview}
+        className="flex-1 min-h-[280px] rounded-2xl overflow-hidden mb-3"
+        accessibilityRole="button"
+        accessibilityLabel="Open trip map on OpenStreetMap"
+      >
+        {!previewFailed ? (
+          <Image
+            source={{ uri: staticMapUri }}
+            style={{ width: '100%', height: '100%', minHeight: 280 }}
+            contentFit="cover"
+            transition={200}
+            onError={() => setPreviewFailed(true)}
           />
-          {routeCoords.length > 0 ? (
-            <Polyline
-              coordinates={routeCoords}
-              strokeColor={brand.primaryDark}
-              strokeWidth={4}
-            />
-          ) : null}
-          {attractions.map((a) => (
-            <Marker
-              key={a.id}
-              coordinate={a.coordinate}
-              title={a.title}
-              description={a.subtitle}
-            />
-          ))}
-        </MapView>
+        ) : (
+          <View
+            className={`${theme.bgMuted} flex-1 min-h-[280px] items-center justify-center px-6`}
+          >
+            <MapPin size={40} color={brand.primaryDark} />
+            <Text className={`${theme.text} font-semibold mt-3`}>
+              View on OpenStreetMap
+            </Text>
+            <Text className={`${theme.textMuted} text-sm mt-2 text-center`}>
+              {validAttractions.length} location
+              {validAttractions.length === 1 ? '' : 's'} on this trip
+            </Text>
+          </View>
+        )}
+
+        <View className="absolute bottom-0 left-0 right-0 bg-black/50 px-3 py-2">
+          <Text className="text-white text-sm font-medium">
+            Tap to open interactive map
+          </Text>
+        </View>
+
         {loadingRoute ? (
           <View className="absolute inset-0 items-center justify-center bg-black/20">
-            <ActivityIndicator color={brand.primaryDark} />
+            <ActivityIndicator color="#fff" />
           </View>
         ) : null}
-      </View>
+      </Pressable>
 
       {routeMeta ? (
         <Text className={`${theme.textMuted} text-sm mb-2 px-1`}>
-          Route: {routeMeta.distance} · ~{routeMeta.duration} driving
+          Route: {routeMeta.distance} · ~{routeMeta.duration} driving (OSRM)
         </Text>
       ) : null}
 
       <Text className={`${theme.textMuted} text-xs mb-3 px-1`}>
-        © OpenStreetMap contributors
+        © OpenStreetMap contributors · Routing via OSRM
       </Text>
     </View>
   );
@@ -143,11 +215,9 @@ export function AttractionRow({
 }
 
 export function openAttractionInMaps(attraction: TripAttraction) {
-  const url = mapsNavigationUrl(
-    attraction.coordinate.latitude,
-    attraction.coordinate.longitude,
-  );
-  void Linking.openURL(url);
+  const { latitude, longitude } = attraction.coordinate;
+  if (!isValidCoordinate(latitude, longitude)) return;
+  void Linking.openURL(mapsNavigationUrl(latitude, longitude));
 }
 
 export default TripMap;

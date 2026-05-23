@@ -9,6 +9,7 @@ import {
 import TripScreenWrapper from '@/components/trip/TripScreenWrapper'
 import { demoMapRegion } from '@/constants/trip-attractions'
 import { useTripItineraryQuery, useTripQuery } from '@/hooks/trips/use-trip-query'
+import { sanitizeMapRegion } from '@/lib/map-coordinates'
 import { itineraryToAttractions, regionFromAttractions } from '@/utils/itinerary-map'
 import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
@@ -37,16 +38,17 @@ export default function MapScreen() {
           ]
         : []
 
-  const region =
+  const region = sanitizeMapRegion(
     regionFromAttractions(attractions) ??
-    (trip?.destination_lat != null
-      ? {
-          latitude: trip.destination_lat,
-          longitude: trip.destination_lon!,
-          latitudeDelta: 0.35,
-          longitudeDelta: 0.35,
-        }
-      : demoMapRegion)
+      (trip?.destination_lat != null && trip.destination_lon != null
+        ? {
+            latitude: trip.destination_lat,
+            longitude: trip.destination_lon,
+            latitudeDelta: 0.35,
+            longitudeDelta: 0.35,
+          }
+        : demoMapRegion),
+  )
 
   if (isLoading) {
     return (

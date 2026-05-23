@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/Card'
 import { useTripItineraryQuery, useTripQuery } from '@/hooks/trips/use-trip-query'
 import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
+import { resolveActivityCostInr } from '@/utils/activity-cost'
 import { formatInr } from '@/utils/currency'
 import {
   isLowTripBudget,
@@ -67,7 +68,15 @@ export default function ItineraryScreen() {
                 {a.name}
               </Text>
               <Text className={`${theme.textMuted} text-sm mt-2`}>
-                Est. {formatInr(a.cost_usd)}
+                Est.{' '}
+                {formatInr(
+                  resolveActivityCostInr({
+                    cost: a.cost_usd,
+                    name: a.name,
+                    transport: a.transport,
+                    travelers: trip?.travelers ?? 1,
+                  }),
+                )}
               </Text>
               {a.transport?.trim() ? (
                 <TransportBadge

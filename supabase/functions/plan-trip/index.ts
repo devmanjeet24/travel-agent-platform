@@ -7,6 +7,7 @@ import {
 import {
   analyzeRoute,
   normalizeActivityTransport,
+  resolveActivityCostInr,
   shouldIncludeFlights,
   tripDaysFromDates,
 } from '../_shared/transport-guidance.ts';
@@ -184,7 +185,13 @@ ${travelContext}`;
             day_id: dayRow.id,
             activity_time: a.time,
             name: a.name,
-            cost_usd: a.cost_usd ?? 0,
+            cost_usd: resolveActivityCostInr({
+              cost: a.cost_usd,
+              name: a.name,
+              transport: a.transport,
+              distanceKm: routeAnalysis?.distanceKm,
+              travelers: trip.travelers,
+            }),
             transport: normalizeActivityTransport(a.transport, routeAnalysis),
             notes: a.notes,
             latitude: lat,

@@ -11,7 +11,16 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "postinstall": "node ./scripts/patch-supabase-hermes.js"
+    "postinstall": "node ./scripts/patch-supabase-hermes.js",
+    "build:android:apk": "eas build --platform android --profile preview",
+    "build:android:apk:local": "bash scripts/build-android-apk-local.sh",
+    "clean:android": "bash scripts/clean-android-build.sh",
+    "clean:android:global": "bash scripts/clean-android-build.sh --global",
+    "build:android:apk:gradle": "bash scripts/build-android-apk-gradle.sh",
+    "build:android:apk:prod": "eas build --platform android --profile production-apk",
+    "build:android:store": "eas build --platform android --profile production",
+    "eas:env:preview": "bash scripts/sync-eas-env.sh preview",
+    "eas:env:production": "bash scripts/sync-eas-env.sh production"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -50,7 +59,6 @@
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
-    "react-native-maps": "1.20.1",
     "react-native-markdown-display": "^7.0.2",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.2",
@@ -61,6 +69,7 @@
     "react-redux": "^9.3.0"
   },
   "devDependencies": {
+    "eas-cli": "^19.0.8",
     "@types/react": "~19.1.10",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.9.2"

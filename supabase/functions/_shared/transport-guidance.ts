@@ -108,6 +108,95 @@ export function estimateFlightPriceInr(distanceKm: number): number {
   return Math.round(8000 + distanceKm * 6.5);
 }
 
+/** Cab / taxi / auto for local or inter-city legs (INR, approximate). */
+export function estimateTaxiPriceInr(distanceKm: number, travelers = 1): number {
+  const km = Math.max(1, distanceKm);
+  const pax = Math.max(1, travelers);
+  if (km <= 5) return Math.round(180 * pax);
+  if (km <= 30) return Math.round((220 + km * 18) * pax);
+  return Math.round((600 + km * 14) * pax);
+}
+
+function parseDistanceKmFromText(text: string): number | undefined {
+  const kmMatch = text.match(/(\d{2,4})\s*km\b/i);
+  if (kmMatch) return Number(kmMatch[1]);
+  const hourMatch = text.match(/~?\s*(\d{1,2})\s*h(?:ours?)?\)?/i);
+  if (hourMatch) {
+    const hours = Number(hourMatch[1]);
+    if (hours >= 4) return Math.round(hours * 55);
+  }
+  return undefined;
+}
+
+function isInterCityLeg(text: string): boolean {
+  return (
+    /\b(from|to|→|–|—|between)\b/i.test(text) ||
+    /\b(board|inter-?city|long journey|overnight)\b/i.test(text) ||
+    /\d+\s*km\b/i.test(text) ||
+    /~\s*\d+\s*h/i.test(text)
+  );
+}
+
+/** Fill missing/zero activity costs using transport mode and route distance. */
+export function resolveActivityCostInr(params: {
+  cost?: number | null;
+  name: string;
+  transport?: string | null;
+  distanceKm?: number;
+  travelers?: number;
+}): number {
+  const stored = Number(params.cost ?? 0);
+  if (Number.isFinite(stored) && stored > 0) {
+    return Math.round(stored);
+  }
+
+  const travelers = Math.max(1, params.travelers ?? 1);
+  const combined = `${params.name} ${params.transport ?? ''}`.trim();
+  const kind = detectTransportKind(combined);
+  const parsedDistance =
+    parseDistanceKmFromText(combined) ?? params.distanceKm ?? undefined;
+  const distanceKm = parsedDistance ?? 80;
+  const interCity = isInterCityLeg(combined);
+
+  switch (kind) {
+    case 'train':
+      return interCity
+        ? estimateTrainPriceInr(distanceKm, travelers)
+        : Math.round(80 * travelers);
+    case 'bus':
+      return interCity
+        ? estimateBusPriceInr(distanceKm, travelers)
+        : Math.round(50 * travelers);
+    case 'flight':
+      return Math.round(estimateFlightPriceInr(distanceKm) * travelers);
+    case 'taxi':
+    case 'car':
+      return estimateTaxiPriceInr(
+        interCity ? distanceKm : Math.min(distanceKm, 40),
+        travelers,
+      );
+    case 'metro':
+      return Math.round(60 * travelers);
+    case 'ferry':
+      return interCity
+        ? Math.max(200, Math.round(distanceKm * 8 * travelers))
+        : Math.round(200 * travelers);
+    case 'walk':
+      return 0;
+    default:
+      if (interCity && /\b(travel|arrive|depart|journey|transfer)\b/i.test(combined)) {
+        return estimateTrainPriceInr(distanceKm, travelers);
+      }
+      if (/\b(dinner|lunch|breakfast|meal|food|restaurant)\b/i.test(params.name)) {
+        return Math.round(400 * travelers);
+      }
+      if (/\b(beach|museum|visit|tour|sightseeing|explore)\b/i.test(params.name)) {
+        return Math.round(200 * travelers);
+      }
+      return Math.round(200 * travelers);
+  }
+}
+
 export function analyzeRoute(params: {
   originGeo: GeoResult;
   destGeo: GeoResult;
