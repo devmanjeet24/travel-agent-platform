@@ -4,7 +4,10 @@ import { useRouter } from 'expo-router'
 
 import { RequireSession } from '@/components/auth/require-session'
 import { Button } from '@/components/ui/Button'
+import { DatePickerField } from '@/components/ui/DatePickerField'
+import { CityAutocompleteInput } from '@/components/ui/CityAutocompleteInput'
 import { Input } from '@/components/ui/Input'
+import { parseIsoDateString } from '@/utils/date-format'
 import { ScreenHeader } from '@/components/ui/ScreenHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { useCreateTripMutation } from '@/hooks/trips/use-create-trip-mutation'
@@ -70,7 +73,7 @@ export default function TripWizardScreen() {
         })
       }
 
-      router.replace(`/(tabs)/chat?tripId=${trip.id}` as never)
+      router.replace(`/trip/${trip.id}` as never)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create trip')
     }
@@ -80,7 +83,7 @@ export default function TripWizardScreen() {
 
   return (
     <RequireSession>
-      <ScreenWrapper scroll>
+      <ScreenWrapper scroll scrollFlexGrow={false} keyboardAvoiding>
         <ScreenHeader
           title="Trip wizard"
           subtitle="Creates trip · AI itinerary · live APIs"
@@ -98,29 +101,38 @@ export default function TripWizardScreen() {
             value={title}
             onChangeText={setTitle}
           />
-          <Input
+          <CityAutocompleteInput
             label="Destination"
             placeholder="Bali, Indonesia"
             value={destination}
             onChangeText={setDestination}
+            listZIndex={20}
           />
-          <Input
-            label="Origin city (for flights)"
+          <CityAutocompleteInput
+            label="Origin city"
             placeholder="Delhi, India"
             value={origin}
             onChangeText={setOrigin}
+            listZIndex={10}
           />
-          <Input
+          <DatePickerField
             label="Start date"
-            placeholder="2026-08-12"
+            placeholder="Select start date"
             value={startDate}
-            onChangeText={setStartDate}
+            onChange={(iso) => {
+              setStartDate(iso)
+              const start = parseIsoDateString(iso)
+              const end = parseIsoDateString(endDate)
+              if (start && end && end < start) setEndDate('')
+            }}
+            minimumDate={new Date()}
           />
-          <Input
+          <DatePickerField
             label="End date"
-            placeholder="2026-08-20"
+            placeholder="Select end date"
             value={endDate}
-            onChangeText={setEndDate}
+            onChange={setEndDate}
+            minimumDate={parseIsoDateString(startDate) ?? new Date()}
           />
           <Input
             label="Travelers"
@@ -130,8 +142,8 @@ export default function TripWizardScreen() {
             onChangeText={setTravelers}
           />
           <Input
-            label="Budget (USD)"
-            placeholder="3000"
+            label="Budget (INR)"
+            placeholder="50000"
             keyboardType="numeric"
             value={budget}
             onChangeText={setBudget}

@@ -12,6 +12,7 @@ export type TripRow = {
   start_date: string | null;
   end_date: string | null;
   travelers: number;
+  /** Trip budget in INR (column name is historical). */
   budget_usd: number | null;
   status: TripStatus;
   image_url: string | null;
@@ -62,6 +63,7 @@ export type ItineraryActivityRow = {
   day_id: string;
   activity_time: string | null;
   name: string;
+  /** Activity cost in INR. */
   cost_usd: number | null;
   transport: string | null;
   notes: string | null;
@@ -74,6 +76,7 @@ export type BudgetCategoryRow = {
   id: string;
   trip_id: string;
   label: string;
+  /** Category amount in INR. */
   amount_usd: number;
   color: string | null;
   sort_order: number;
@@ -85,8 +88,10 @@ export type TripHotelRow = {
   external_id: string | null;
   name: string;
   rating: number | null;
+  /** Nightly rate in INR. */
   price_per_night_usd: number | null;
   image_url: string | null;
+  raw?: Record<string, unknown> | null;
   is_selected: boolean;
 };
 
@@ -97,8 +102,10 @@ export type TripFlightRow = {
   route: string | null;
   depart_time: string | null;
   arrive_time: string | null;
+  /** Fare in INR. */
   price_usd: number | null;
   stops: string | null;
+  raw?: Record<string, unknown> | null;
   is_selected: boolean;
 };
 

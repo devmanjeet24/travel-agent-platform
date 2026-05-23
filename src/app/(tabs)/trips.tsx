@@ -7,28 +7,33 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { ScreenHeader } from '@/components/ui/ScreenHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { useTripsQuery } from '@/hooks/trips/use-trips-query'
+import { useConfirmDeleteTrip } from '@/hooks/trips/use-confirm-delete-trip'
+import { brand } from '@/constants/design'
 import { formatTripDates } from '@/services/trips/trip-api'
 
 export default function TripsScreen() {
   const router = useRouter()
   const { data: trips, isLoading } = useTripsQuery()
+  const { confirmDelete } = useConfirmDeleteTrip()
   const hasTrips = (trips?.length ?? 0) > 0
 
   return (
-    <ScreenWrapper scroll>
+    <ScreenWrapper scroll tabInset scrollFlexGrow>
       <ScreenHeader
+        eyebrow="Your library"
         title="Saved trips"
         subtitle="Synced to your account · export PDF from trip overview"
       />
 
       {isLoading ? (
-        <ActivityIndicator className="mt-12" color="#0EA5E9" />
+        <ActivityIndicator className="mt-12" color={brand.primaryDark} />
       ) : hasTrips ? (
         trips!.map((trip) => (
           <TripCard
             key={trip.id}
             title={trip.title}
-            subtitle={`${formatTripDates(trip.start_date, trip.end_date)} · ${trip.status}`}
+            imageUri={trip.image_url ?? undefined}
+            subtitle={trip.destination}
             status={
               trip.status === 'completed'
                 ? 'completed'
@@ -37,6 +42,9 @@ export default function TripsScreen() {
                   : 'saved'
             }
             onPress={() => router.push(`/trip/${trip.id}`)}
+            onDelete={() =>
+              confirmDelete({ tripId: trip.id, tripTitle: trip.title })
+            }
           />
         ))
       ) : (

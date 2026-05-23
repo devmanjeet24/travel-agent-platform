@@ -6,6 +6,8 @@ import type {
   ItineraryDayRow,
   TripRow,
 } from '@/types/database';
+import { resolveActivityCostInr } from '@/utils/activity-cost';
+import { formatInr } from '@/utils/currency';
 
 type ItineraryDay = ItineraryDayRow & { activities: ItineraryActivityRow[] };
 
@@ -25,7 +27,7 @@ export async function exportTripPdf(params: {
         ${d.activities
           .map(
             (a) =>
-              `<li><strong>${a.activity_time ?? ''}</strong> ${a.name} — $${Number(a.cost_usd ?? 0)} · ${a.transport ?? ''}</li>`,
+              `<li><strong>${a.activity_time ?? ''}</strong> ${a.name} — ${formatInr(resolveActivityCostInr({ cost: a.cost_usd, name: a.name, transport: a.transport, travelers: trip.travelers }))} · ${a.transport ?? ''}</li>`,
           )
           .join('')}
       </ul>`,
@@ -33,7 +35,7 @@ export async function exportTripPdf(params: {
     .join('');
 
   const budgetHtml = budget
-    .map((c) => `<tr><td>${c.label}</td><td>$${Number(c.amount_usd).toFixed(0)}</td></tr>`)
+    .map((c) => `<tr><td>${c.label}</td><td>${formatInr(c.amount_usd)}</td></tr>`)
     .join('');
 
   const html = `
@@ -47,7 +49,7 @@ export async function exportTripPdf(params: {
       <body>
         <h1>${trip.title}</h1>
         <p>${trip.destination} · ${trip.start_date ?? 'TBD'} – ${trip.end_date ?? 'TBD'}</p>
-        <p>Budget total: <strong>$${total.toFixed(0)} USD</strong></p>
+        <p>Budget total: <strong>${formatInr(total)} INR</strong></p>
         <h2>Itinerary</h2>
         ${itineraryHtml || '<p>No itinerary yet.</p>'}
         <h2>Budget</h2>

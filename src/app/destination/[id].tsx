@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { ScreenHeader } from '@/components/ui/ScreenHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
-import { defaultTripImage } from '@/constants/design'
+import { brand, defaultTripImage } from '@/constants/design'
 import { fetchWeatherForDestination } from '@/services/travel/travel-api'
 import type { WeatherResult } from '@/types/database'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
@@ -45,7 +45,7 @@ export default function DestinationDetailScreen() {
           <ScreenHeader title={destination.split(',')[0]} subtitle={destination} showBack />
 
           {loading ? (
-            <ActivityIndicator className="my-6" color="#0EA5E9" />
+            <ActivityIndicator className="my-6" color={brand.primaryDark} />
           ) : (
             <View className="flex-row gap-4 mb-6">
               <View className="flex-row items-center gap-1">
@@ -53,13 +53,13 @@ export default function DestinationDetailScreen() {
                 <Text className={`${theme.text} font-semibold`}>Live data</Text>
               </View>
               <View className="flex-row items-center gap-1">
-                <Thermometer size={18} color="#0EA5E9" />
+                <Thermometer size={18} color={brand.primaryDark} />
                 <Text className={`${theme.textMuted} text-sm`}>
                   {avgTemp != null ? `${avgTemp}°C avg` : 'Weather N/A'}
                 </Text>
               </View>
               <View className="flex-row items-center gap-1">
-                <Users size={18} color="#8B5CF6" />
+                <Users size={18} color={brand.accent} />
                 <Text className={`${theme.textMuted} text-sm`}>Open-Meteo</Text>
               </View>
             </View>

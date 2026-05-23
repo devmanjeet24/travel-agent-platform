@@ -52,6 +52,7 @@ export default function RootLayout() {
           <Stack.Screen name="trip/[id]" />
           <Stack.Screen name="destination/[id]" />
           <Stack.Screen name="settings" />
+          <Stack.Screen name="edit-profile" />
           <Stack.Screen name="admin" />
         </Stack>
       </NavigationThemeProvider>

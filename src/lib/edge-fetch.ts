@@ -31,6 +31,7 @@ export type StreamChatCallbacks = {
   onDone: (result: {
     reply: string;
     conversationId?: string;
+    title?: string;
     warning?: string;
   }) => void;
   onError: (message: string) => void;
@@ -55,6 +56,7 @@ function parseSseLines(
         done?: boolean;
         reply?: string;
         conversationId?: string;
+        title?: string;
         error?: string;
         warning?: string;
       };
@@ -68,6 +70,7 @@ function parseSseLines(
         callbacks.onDone({
           reply: data.reply,
           conversationId: data.conversationId,
+          title: data.title,
           warning: data.warning,
         });
       }

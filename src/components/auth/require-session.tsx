@@ -2,12 +2,13 @@ import { Redirect } from 'expo-router'
 import type { ReactNode } from 'react'
 import { ActivityIndicator, View } from 'react-native'
 
+import { brand } from '@/constants/design'
 import { useAuth } from '@/providers/auth-provider'
 
 export function SessionPendingFallback() {
   return (
-    <View className="flex-1 items-center justify-center bg-slate-50 dark:bg-slate-950">
-      <ActivityIndicator size="large" color="#0EA5E9" />
+    <View className="flex-1 items-center justify-center bg-sky-50">
+      <ActivityIndicator size="large" color={brand.primaryDark} />
     </View>
   )
 }

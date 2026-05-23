@@ -9,6 +9,7 @@ import { useProfileQuery } from '@/hooks/profile/use-profile-query'
 import { updateProfileSettings } from '@/services/profile/profile-api'
 import { registerForPushNotifications } from '@/lib/notifications-setup'
 import { useAuth } from '@/providers/auth-provider'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 export default function SettingsScreen() {
@@ -49,8 +50,8 @@ export default function SettingsScreen() {
 
   return (
     <RequireSession>
-      <ScreenWrapper scroll>
-        <ScreenHeader title="Settings" subtitle="Preferences & app" showBack />
+      <ScreenWrapper scroll keyboardAvoiding>
+        <ScreenHeader eyebrow="Account" title="Settings" subtitle="Preferences & app" showBack />
 
         <Card className="mb-4">
           <Text className={`${theme.textMuted} text-sm`}>Appearance</Text>
@@ -64,7 +65,7 @@ export default function SettingsScreen() {
           <Switch
             value={notifications}
             onValueChange={onNotificationsChange}
-            trackColor={{ true: '#0EA5E9' }}
+            trackColor={{ true: brand.primaryDark }}
           />
         </Card>
 
@@ -73,7 +74,7 @@ export default function SettingsScreen() {
           <Switch
             value={offlineMode}
             onValueChange={onOfflineChange}
-            trackColor={{ true: '#0EA5E9' }}
+            trackColor={{ true: brand.primaryDark }}
           />
         </Card>
 

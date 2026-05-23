@@ -25,6 +25,22 @@ export async function fetchConversations(): Promise<ChatConversationRow[]> {
   return (data ?? []) as ChatConversationRow[];
 }
 
+export async function fetchConversationById(
+  conversationId: string,
+): Promise<ChatConversationRow | null> {
+  const supabase = getSupabaseOrNull();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('chat_conversations')
+    .select('*')
+    .eq('id', conversationId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return (data as ChatConversationRow | null) ?? null;
+}
+
 export async function fetchConversationMessages(
   conversationId: string,
 ): Promise<ChatMessageRow[]> {

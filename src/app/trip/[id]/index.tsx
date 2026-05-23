@@ -1,32 +1,51 @@
 import { useState } from 'react'
-import { ActivityIndicator, Alert, Text, View } from 'react-native'
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import {
   FileDown,
   Map,
-  Plane,
+  Navigation,
   Wallet,
   Hotel,
   ListChecks,
   Calendar,
+  ChevronRight,
 } from 'lucide-react-native'
 import type { LucideIcon } from 'lucide-react-native'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { useTripBudgetQuery, useTripItineraryQuery, useTripQuery } from '@/hooks/trips/use-trip-query'
+import { TransportBadge } from '@/components/trip/TransportBadge'
+import { TripHotelCard } from '@/components/trip/TripHotelCard'
+import TripScreenWrapper from '@/components/trip/TripScreenWrapper'
+import { useRoutePolicy } from '@/hooks/trips/use-route-policy'
+import { useSyncTripTravel } from '@/hooks/trips/use-sync-trip-travel'
+import {
+  useTripBudgetQuery,
+  useTripFlightsQuery,
+  useTripHotelsQuery,
+  useTripItineraryQuery,
+  useTripQuery,
+} from '@/hooks/trips/use-trip-query'
 import { usePlanTripMutation } from '@/hooks/trips/use-plan-trip-mutation'
+import { useConfirmDeleteTrip } from '@/hooks/trips/use-confirm-delete-trip'
 import { tripKeys } from '@/services/trips/trip-keys'
 import { formatTripDates } from '@/services/trips/trip-api'
-import { searchAndCacheHotels } from '@/services/travel/travel-api'
+import { searchAndCacheFlights, searchAndCacheHotels, fetchRoutePolicy } from '@/services/travel/travel-api'
 import { exportTripPdf } from '@/lib/pdf-export'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
+import {
+  collectItineraryTransportOptions,
+  isLowTripBudget,
+  tripDaysBetween,
+} from '@/utils/transport-display'
 
 const sections: { label: string; route: string; icon: LucideIcon }[] = [
   { label: 'Itinerary', route: 'itinerary', icon: Calendar },
   { label: 'Budget', route: 'budget', icon: Wallet },
-  { label: 'Flights', route: 'flights', icon: Plane },
+  { label: 'Transport', route: 'flights', icon: Navigation },
   { label: 'Hotels', route: 'hotels', icon: Hotel },
   { label: 'Map & routes', route: 'map', icon: Map },
   { label: 'Packing list', route: 'packing', icon: ListChecks },
@@ -40,8 +59,23 @@ export default function TripOverviewScreen() {
   const { data: trip, isLoading } = useTripQuery(id)
   const { data: itinerary } = useTripItineraryQuery(id)
   const { data: budget } = useTripBudgetQuery(id)
+  const { data: hotels, isLoading: hotelsLoading } = useTripHotelsQuery(id)
+  const { data: flights } = useTripFlightsQuery(id)
+  const { data: routePolicy } = useRoutePolicy(trip)
   const planTrip = usePlanTripMutation()
+  const { confirmDelete, isDeleting } = useConfirmDeleteTrip()
   const [refreshing, setRefreshing] = useState(false)
+
+  useSyncTripTravel(trip)
+
+  const groundPreview = collectItineraryTransportOptions(itinerary).slice(0, 3)
+  const hotelPreview = hotels?.slice(0, 2) ?? []
+  const preferGround = routePolicy?.preferGround ?? groundPreview.length > 0
+  const lowBudget = isLowTripBudget(
+    trip?.budget_usd ? Number(trip.budget_usd) : undefined,
+    trip?.travelers ?? 1,
+    tripDaysBetween(trip?.start_date ?? null, trip?.end_date ?? null),
+  )
 
   const handleRefreshTravel = async () => {
     if (!trip?.start_date || !trip.end_date) {
@@ -55,9 +89,38 @@ export default function TripOverviewScreen() {
         destination: trip.destination,
         startDate: trip.start_date,
         endDate: trip.end_date,
+        budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+        destinationLat: trip.destination_lat,
+        destinationLon: trip.destination_lon,
       })
+      if (trip.origin_city) {
+        const policy = await fetchRoutePolicy({
+          origin: trip.origin_city,
+          destination: trip.destination,
+          startDate: trip.start_date,
+          endDate: trip.end_date,
+          budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+          travelers: trip.travelers,
+        })
+        if (policy?.includeFlights) {
+          await searchAndCacheFlights({
+            tripId: trip.id,
+            origin: trip.origin_city,
+            destination: trip.destination,
+            departDate: trip.start_date,
+            budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+          })
+          void queryClient.invalidateQueries({ queryKey: tripKeys.flights(trip.id) })
+        }
+      }
       void queryClient.invalidateQueries({ queryKey: tripKeys.hotels(trip.id) })
-      Alert.alert('Hotels updated', 'OpenStreetMap hotels saved to this trip.')
+      void queryClient.invalidateQueries({ queryKey: tripKeys.itinerary(trip.id) })
+      Alert.alert(
+        'Travel data updated',
+        trip.origin_city
+          ? 'OpenStreetMap hotels saved. Flights refreshed only when recommended for this route.'
+          : 'OpenStreetMap hotels saved to this trip.',
+      )
     } catch (e) {
       Alert.alert('Search failed', e instanceof Error ? e.message : 'Unknown error')
     } finally {
@@ -80,20 +143,37 @@ export default function TripOverviewScreen() {
 
   if (isLoading || !trip) {
     return (
-      <View className={`flex-1 ${theme.bg} items-center justify-center`}>
-        <ActivityIndicator color="#0EA5E9" />
-      </View>
+      <TripScreenWrapper scroll={false} centered>
+        <ActivityIndicator color={brand.primaryDark} />
+      </TripScreenWrapper>
     )
   }
 
+  const transportHint =
+    preferGround && !routePolicy?.includeFlights
+      ? 'Train, bus & local · from itinerary'
+      : preferGround
+        ? 'Train, bus & flights'
+        : flights?.length
+          ? `${flights.length} flight option${flights.length === 1 ? '' : 's'}`
+          : groundPreview.length
+            ? 'From itinerary'
+            : 'Set origin city to load options'
+
+  const hotelsHint = hotelPreview.length
+    ? `${hotels?.length ?? hotelPreview.length} real listings (OpenStreetMap)`
+    : hotelsLoading
+      ? 'Loading hotels…'
+      : 'Tap refresh for OpenStreetMap hotels'
+
   return (
-    <View className={`flex-1 ${theme.bg} px-5 pb-8`}>
+    <TripScreenWrapper>
       <Card className="mt-2">
         <Text className={`${theme.text} text-2xl font-bold`}>{trip.title}</Text>
         <Text className={`${theme.textMuted} mt-1`}>
           {formatTripDates(trip.start_date, trip.end_date)} · {trip.travelers} travelers
         </Text>
-        <Text className="text-sky-500 font-medium mt-3 capitalize">{trip.status}</Text>
+        <Text className="text-yellow-600 font-medium mt-3 capitalize">{trip.status}</Text>
       </Card>
 
       <Button
@@ -105,28 +185,103 @@ export default function TripOverviewScreen() {
       />
 
       <Button
-        title={refreshing ? 'Searching hotels…' : 'Refresh live hotels'}
+        title={refreshing ? 'Refreshing travel data…' : 'Refresh hotels & transport'}
         variant="outline"
         className="mt-3"
         onPress={handleRefreshTravel}
         disabled={refreshing}
       />
 
+      <View className="mt-6">
+        <View className="mb-6">
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className={`${theme.text} font-bold text-lg`}>Transport</Text>
+            {(groundPreview.length > 0 || flights?.length) && (
+              <Pressable
+                onPress={() => router.push(`/trip/${id}/flights` as never)}
+                className="flex-row items-center gap-1"
+              >
+                <Text className="text-yellow-600 text-sm font-semibold">See all</Text>
+                <ChevronRight size={16} color={brand.primaryDark} />
+              </Pressable>
+            )}
+          </View>
+          {groundPreview.length > 0 ? (
+            groundPreview.map((option, index) => (
+              <Card key={`${option.kind}-${index}`} className="mb-3">
+                <Text className={`${theme.text} font-semibold text-sm`}>{option.activityName}</Text>
+                <TransportBadge
+                  icon={option.icon}
+                  label={option.label}
+                  detail={option.detail}
+                  budgetFriendly={option.budgetFriendly}
+                  showBudgetHint={lowBudget}
+                />
+              </Card>
+            ))
+          ) : (
+            <Text className={`${theme.textMuted} text-sm`}>
+              {trip.origin_city
+                ? preferGround
+                  ? 'Regenerate your AI plan to add train, bus, and local legs — or open Transport for flight estimates when recommended.'
+                  : 'Open Transport for flight estimates, or regenerate your plan for itinerary legs.'
+                : 'Add an origin city (e.g. Delhi) when creating the trip, then regenerate the plan for train and bus options.'}
+            </Text>
+          )}
+        </View>
+
+        <View>
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className={`${theme.text} font-bold text-lg`}>Hotels</Text>
+            {hotelPreview.length > 0 ? (
+              <Pressable
+                onPress={() => router.push(`/trip/${id}/hotels` as never)}
+                className="flex-row items-center gap-1"
+              >
+                <Text className="text-yellow-600 text-sm font-semibold">See all</Text>
+                <ChevronRight size={16} color={brand.primaryDark} />
+              </Pressable>
+            ) : null}
+          </View>
+          {hotelsLoading && !hotelPreview.length ? (
+            <ActivityIndicator color={brand.primaryDark} />
+          ) : hotelPreview.length > 0 ? (
+            hotelPreview.map((h) => <TripHotelCard key={h.id} hotel={h} compact />)
+          ) : (
+            <Text className={`${theme.textMuted} text-sm`}>
+              {trip.start_date && trip.end_date
+                ? 'No hotels loaded yet. Tap “Refresh hotels & transport” — we pull real property names, addresses, and photos from OpenStreetMap.'
+                : 'Add trip start and end dates, then refresh to load OpenStreetMap hotel listings.'}
+            </Text>
+          )}
+        </View>
+      </View>
+
       <Text className={`${theme.text} font-bold text-lg mt-6 mb-3`}>Trip modules</Text>
       {sections.map((s) => {
         const Icon = s.icon
+        const subtitle =
+          s.route === 'flights'
+            ? transportHint
+            : s.route === 'hotels'
+              ? hotelsHint
+              : null
         return (
           <Card
             key={s.route}
             onPress={() => router.push(`/trip/${id}/${s.route}` as never)}
             className="mb-3 flex-row items-center"
           >
-            <View className="bg-sky-500/20 p-3 rounded-xl mr-4">
-              <Icon size={22} color="#0EA5E9" />
+            <View className="bg-yellow-500/20 p-3 rounded-xl mr-4">
+              <Icon size={22} color={brand.primaryDark} />
             </View>
-            <Text className={`${theme.text} font-semibold text-base flex-1`}>
-              {s.label}
-            </Text>
+            <View className="flex-1">
+              <Text className={`${theme.text} font-semibold text-base`}>{s.label}</Text>
+              {subtitle ? (
+                <Text className={`${theme.textMuted} text-xs mt-0.5`}>{subtitle}</Text>
+              ) : null}
+            </View>
+            <ChevronRight size={20} color="#94A3B8" />
           </Card>
         )
       })}
@@ -146,9 +301,23 @@ export default function TripOverviewScreen() {
         onPress={handleExportPdf}
       />
       <View className="flex-row items-center justify-center mt-3 gap-2">
-        <FileDown size={18} color="#8B5CF6" />
+        <FileDown size={18} color={brand.primaryDark} />
         <Text className={`${theme.textMuted} text-sm`}>Share itinerary & budget</Text>
       </View>
-    </View>
+
+      <Button
+        title={isDeleting ? 'Deleting…' : 'Delete trip'}
+        variant="danger"
+        className="mt-8 mb-2"
+        onPress={() =>
+          confirmDelete({
+            tripId: trip.id,
+            tripTitle: trip.title,
+            onDeleted: () => router.replace('/(tabs)/trips' as never),
+          })
+        }
+        disabled={isDeleting}
+      />
+    </TripScreenWrapper>
   )
 }

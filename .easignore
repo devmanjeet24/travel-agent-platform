@@ -1,0 +1,34 @@
+# EAS upload exclusions (in addition to .gitignore).
+# Local android/ was ~1.7GB and breaks cloud builds — let EAS prebuild from app.json.
+
+node_modules/
+android/
+ios/
+.expo/
+dist/
+web-build/
+
+# Local native build artifacts (if android/ is ever present)
+**/.gradle/
+**/android/build/
+**/.cxx/
+**/.kotlin/
+
+# IDE & OS
+.idea/
+.vscode/
+.DS_Store
+*.pem
+
+# Docs & examples (not needed on build workers)
+docs/
+app-example/
+**/*.md
+!README.md
+
+# Supabase backend (Edge Functions deploy separately)
+supabase/
+
+# Env files (use EAS Environment Variables instead)
+.env
+.env.*

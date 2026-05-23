@@ -11,7 +11,55 @@ export type VoiceRecorder = {
   cancel: () => Promise<void>;
 };
 
-/** Web: MediaRecorder API. Native: expo-av. */
+/** Global handle — expo-av allows only one prepared Recording at a time. */
+let activeNativeRecording: Audio.Recording | null = null;
+let nativeRecordingLock: Promise<void> = Promise.resolve();
+
+async function withNativeRecordingLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = nativeRecordingLock.then(fn);
+  nativeRecordingLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/** Stop and unload any in-flight native recording (required before starting another). */
+export async function releaseActiveNativeRecording(): Promise<void> {
+  if (!activeNativeRecording) return;
+
+  const rec = activeNativeRecording;
+  activeNativeRecording = null;
+
+  try {
+    const status = await rec.getStatusAsync();
+    if (status.isRecording || status.canRecord) {
+      await rec.stopAndUnloadAsync();
+    }
+  } catch {
+    try {
+      await rec.stopAndUnloadAsync();
+    } catch {
+      /* already released */
+    }
+  }
+}
+
+async function configureRecordingAudioMode(): Promise<void> {
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: true,
+    playsInSilentModeIOS: true,
+  });
+}
+
+async function resetPlaybackAudioMode(): Promise<void> {
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: false,
+    playsInSilentModeIOS: true,
+  });
+}
+
+/** Web: MediaRecorder API. Native: expo-av (single global recording session). */
 export async function createVoiceRecorder(): Promise<VoiceRecorder> {
   if (Platform.OS === 'web') {
     return createWebRecorder();
@@ -24,35 +72,53 @@ async function createNativeRecorder(): Promise<VoiceRecorder> {
   if (!perm.granted) {
     throw new Error('Microphone permission is required for voice input.');
   }
-  await Audio.setAudioModeAsync({
-    allowsRecordingIOS: true,
-    playsInSilentModeIOS: true,
-  });
 
   let recording: Audio.Recording | null = null;
 
   return {
     async start() {
-      const { recording: rec } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
-      );
-      recording = rec;
+      await withNativeRecordingLock(async () => {
+        await releaseActiveNativeRecording();
+        await configureRecordingAudioMode();
+
+        const { recording: rec } = await Audio.Recording.createAsync(
+          Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        );
+        recording = rec;
+        activeNativeRecording = rec;
+      });
     },
     async stop() {
-      if (!recording) return null;
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      recording = null;
-      return uri;
+      return withNativeRecordingLock(async () => {
+        if (!recording) return null;
+        try {
+          await recording.stopAndUnloadAsync();
+        } finally {
+          if (activeNativeRecording === recording) {
+            activeNativeRecording = null;
+          }
+          const uri = recording.getURI();
+          recording = null;
+          await resetPlaybackAudioMode();
+          return uri;
+        }
+      });
     },
     async cancel() {
-      if (!recording) return;
-      try {
-        await recording.stopAndUnloadAsync();
-      } catch {
-        /* ignore */
-      }
-      recording = null;
+      await withNativeRecordingLock(async () => {
+        if (!recording) return;
+        try {
+          await recording.stopAndUnloadAsync();
+        } catch {
+          /* ignore */
+        } finally {
+          if (activeNativeRecording === recording) {
+            activeNativeRecording = null;
+          }
+          recording = null;
+          await resetPlaybackAudioMode();
+        }
+      });
     },
   };
 }

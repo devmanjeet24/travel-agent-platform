@@ -1,16 +1,66 @@
 import { handleOptions, jsonResponse, corsHeaders } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { parseBudgetFromText } from '../_shared/currency.ts';
+import { CHAT_TRANSPORT_HINT } from '../_shared/plan-prompt.ts';
 import { buildTravelContext } from '../_shared/travel-apis.ts';
 import { safeDb } from '../_shared/db.ts';
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = 'llama-3.3-70b-versatile';
 
-const SYSTEM_PROMPT = `You are a professional AI travel agent with live context from Open-Meteo (weather), OpenStreetMap (hotels/places), and estimated fares when noted.
-Help users plan trips: ask clarifying questions when details are missing (dates, budget, travelers, origin city).
-Give practical destination ideas, day-wise outlines, and budget tips.
+const SYSTEM_PROMPT = `You are a professional AI travel agent for Indian travelers with live context from Open-Meteo (weather), OpenStreetMap (hotels/places), and estimated fares when noted.
+Help users plan trips: ask clarifying questions when details are missing (dates, budget in INR, travelers, origin city).
+Give practical destination ideas, day-wise outlines, and budget tips. All costs and budgets are in Indian Rupees (INR, ₹).
 Use ONLY data in [LIVE TRAVEL DATA] for weather and named hotels. Treat flight/hotel prices marked "estimate" as approximations — never invent booking IDs or live seat availability.
+${CHAT_TRANSPORT_HINT}
 Be concise, friendly, and actionable.`;
+
+function fallbackTitle(message: string): string {
+  const cleaned = message.replace(/\[Attachments:[^\]]+\]/gi, '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return 'New trip chat';
+  const words = cleaned.split(/\s+/).slice(0, 8).join(' ');
+  return words.length > 56 ? `${words.slice(0, 53)}…` : words;
+}
+
+async function generateConversationTitle(
+  groqKey: string,
+  message: string,
+): Promise<string> {
+  const prompt = message.replace(/\[Attachments:[^\]]+\]/gi, '').trim().slice(0, 500);
+  if (!prompt) return 'New trip chat';
+
+  try {
+    const res = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${groqKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Write a short chat title (3–6 words, no quotes) summarizing the user travel question. Reply with title only.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.4,
+        max_tokens: 24,
+      }),
+    });
+    const data = await res.json();
+    const title = String(data?.choices?.[0]?.message?.content ?? '')
+      .replace(/^["']|["']$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (title.length >= 3 && title.length <= 60) return title;
+  } catch {
+    /* use fallback */
+  }
+  return fallbackTitle(message);
+}
 
 function parseTripContextFromMessage(text: string): RequestBody['tripContext'] {
   const ctx: RequestBody['tripContext'] = {};
@@ -19,8 +69,8 @@ function parseTripContextFromMessage(text: string): RequestBody['tripContext'] {
   );
   if (destMatch) ctx.destination = destMatch[1].trim();
 
-  const budgetMatch = text.match(/\$?\s*(\d{3,6})\s*(?:usd|dollars?|budget)?/i);
-  if (budgetMatch) ctx.budgetUsd = Number(budgetMatch[1]);
+  const budgetInr = parseBudgetFromText(text);
+  if (budgetInr != null) ctx.budgetInr = budgetInr;
 
   const travelersMatch = text.match(/(\d+)\s*(?:people|travelers|travellers|guests|pax)/i);
   if (travelersMatch) ctx.travelers = Number(travelersMatch[1]);
@@ -50,7 +100,7 @@ type RequestBody = {
     origin?: string;
     startDate?: string;
     endDate?: string;
-    budgetUsd?: number;
+    budgetInr?: number;
     travelers?: number;
   };
 };
@@ -99,7 +149,7 @@ Deno.serve(async (req) => {
           origin: trip.origin_city ?? undefined,
           startDate: trip.start_date ?? undefined,
           endDate: trip.end_date ?? undefined,
-          budgetUsd: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+          budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
           travelers: trip.travelers,
           ...tripContext,
           destination: tripContext.destination ?? trip.destination,
@@ -113,7 +163,7 @@ Deno.serve(async (req) => {
           origin: tripContext.origin,
           startDate: tripContext.startDate,
           endDate: tripContext.endDate,
-          budgetUsd: tripContext.budgetUsd,
+          budgetInr: tripContext.budgetInr,
           travelers: tripContext.travelers,
         })
       : '';
@@ -123,16 +173,19 @@ Deno.serve(async (req) => {
       : SYSTEM_PROMPT;
 
     let conversationId = body.conversationId;
+    let conversationTitle: string | null = null;
     let dbWarning: string | null = null;
+    const isNewConversation = !conversationId;
 
     if (!conversationId) {
+      conversationTitle = await generateConversationTitle(groqKey, message);
       const conv = await safeDb('create conversation', async () => {
         const { data, error } = await supabase
           .from('chat_conversations')
           .insert({
             user_id: user.id,
             trip_id: body.tripId ?? null,
-            title: message.slice(0, 60),
+            title: conversationTitle,
           })
           .select('id')
           .single();
@@ -249,6 +302,7 @@ Deno.serve(async (req) => {
             send({
               done: true,
               conversationId,
+              title: isNewConversation ? conversationTitle : undefined,
               reply: trimmedReply,
               warning: dbWarning,
             });
@@ -289,7 +343,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    return jsonResponse({ reply, conversationId, warning: dbWarning });
+    return jsonResponse({
+      reply,
+      conversationId,
+      title: isNewConversation ? conversationTitle : undefined,
+      warning: dbWarning,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     return jsonResponse({ error: msg }, 500);
