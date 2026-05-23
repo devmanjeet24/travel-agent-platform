@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, Text, View } from 'react-native'
+import { ActivityIndicator, Text } from 'react-native'
 import {
   Bell,
   Calendar,
@@ -8,13 +8,14 @@ import {
 } from 'lucide-react-native'
 import type { LucideIcon } from 'lucide-react-native'
 
+import { SwipeableNotificationRow } from '@/components/notifications/SwipeableNotificationRow'
 import { ScreenHeader } from '@/components/ui/ScreenHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import {
+  useDismissNotificationMutation,
   useMarkNotificationReadMutation,
   useNotificationsQuery,
 } from '@/hooks/notifications/use-notifications-query'
-import { formatNotificationTime } from '@/services/notifications/notification-api'
 import type { NotificationRow } from '@/types/database'
 import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
@@ -31,6 +32,7 @@ export default function NotificationsScreen() {
   const theme = useThemedStyles()
   const { data: notifications, isLoading } = useNotificationsQuery()
   const markRead = useMarkNotificationReadMutation()
+  const dismiss = useDismissNotificationMutation()
 
   return (
     <ScreenWrapper scroll tabInset>
@@ -50,26 +52,13 @@ export default function NotificationsScreen() {
         notifications.map((n) => {
           const Icon = iconMap[n.type]
           return (
-            <Pressable
+            <SwipeableNotificationRow
               key={n.id}
+              notification={n}
+              icon={Icon}
               onPress={() => markRead.mutate(n.id)}
-              className={`${theme.bgCard} ${theme.border} border rounded-2xl p-4 mb-3 flex-row ${
-                n.read ? 'opacity-70' : ''
-              }`}
-            >
-              <View className="bg-yellow-500/20 p-3 rounded-xl mr-4 h-12 w-12 items-center justify-center">
-                <Icon size={22} color={brand.primaryDark} />
-              </View>
-              <View className="flex-1">
-                <Text className={`${theme.text} font-semibold`}>{n.title}</Text>
-                <Text className={`${theme.textMuted} text-sm mt-1 leading-5`}>
-                  {n.body}
-                </Text>
-                <Text className={`${theme.textMuted} text-xs mt-2`}>
-                  {formatNotificationTime(n.created_at)}
-                </Text>
-              </View>
-            </Pressable>
+              onDismiss={() => dismiss.mutate(n.id)}
+            />
           )
         })
       )}

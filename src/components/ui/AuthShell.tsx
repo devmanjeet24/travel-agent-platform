@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ScrollView, Text, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Compass, Sparkles } from 'lucide-react-native'
 
@@ -98,19 +98,27 @@ export function AuthShell({ title, subtitle, children }: Props) {
             backgroundColor: 'rgba(56, 189, 248, 0.18)',
           }}
         />
-        <ScrollView
-          contentContainerStyle={{
-            flexGrow: 1,
-            justifyContent: 'center',
-            paddingHorizontal: horizontalPadding,
-            paddingVertical: 24,
-            paddingBottom: 36,
-          }}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          enabled={Platform.OS === 'ios'}
         >
-          {formCard}
-        </ScrollView>
+          <ScrollView
+            contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: 'center',
+              paddingHorizontal: horizontalPadding,
+              paddingVertical: 24,
+              paddingBottom: 36,
+            }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            automaticallyAdjustKeyboardInsets={Platform.OS !== 'web'}
+            showsVerticalScrollIndicator={false}
+          >
+            {formCard}
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     )
   }

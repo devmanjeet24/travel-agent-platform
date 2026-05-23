@@ -1,4 +1,4 @@
-import { Platform, ScrollView, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import type { ReactNode } from 'react'
 
@@ -7,6 +7,8 @@ import { useTabScreenInsets } from '@/hooks/use-tab-screen-insets'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { isWeb } from '@/lib/ui-styles'
 import { MaxContentWidth } from '@/constants/theme'
+
+type SafeAreaEdge = 'top' | 'bottom' | 'left' | 'right'
 
 interface Props {
   children: ReactNode
@@ -17,6 +19,14 @@ interface Props {
   centered?: boolean
   /** Add extra bottom padding for tab bar (use on tab stack screens). */
   tabInset?: boolean
+  /** Safe area edges; use without `top` on stack screens that already show a header. */
+  edges?: SafeAreaEdge[]
+  /** When scroll=true, grow content so lists scroll on short viewports (default true). */
+  scrollFlexGrow?: boolean
+  /** Shift scroll content when the software keyboard is open (default true when scroll). */
+  keyboardAvoiding?: boolean
+  /** Extra offset for stack headers / tab bars (iOS KeyboardAvoidingView). */
+  keyboardVerticalOffset?: number
 }
 
 function MeshBackground({ isDark, width }: { isDark: boolean; width: number }) {
@@ -59,7 +69,12 @@ export default function ScreenWrapper({
   contentContainerClassName = '',
   centered = false,
   tabInset = false,
+  edges = ['top', 'left', 'right'],
+  scrollFlexGrow = true,
+  keyboardAvoiding,
+  keyboardVerticalOffset = 0,
 }: Props) {
+  const avoidKeyboard = keyboardAvoiding ?? scroll
   const theme = useThemedStyles()
   const { width, horizontalPadding, contentWidth } = useResponsive()
   const tabInsets = useTabScreenInsets()
@@ -88,20 +103,39 @@ export default function ScreenWrapper({
     </View>
   )
 
-  const content = scroll ? (
+  const scrollView = scroll ? (
     <ScrollView
       style={{ flex: 1 }}
       contentContainerStyle={{
         paddingBottom: padBottom,
         paddingHorizontal: padX,
-        flexGrow: centered ? 1 : undefined,
+        flexGrow: centered || scrollFlexGrow ? 1 : undefined,
         justifyContent: centered ? 'center' : undefined,
       }}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      automaticallyAdjustKeyboardInsets={avoidKeyboard && Platform.OS !== 'web'}
+      nestedScrollEnabled
+      contentInsetAdjustmentBehavior="automatic"
       showsVerticalScrollIndicator={false}
     >
       <View className={contentContainerClassName}>{inner}</View>
     </ScrollView>
+  ) : null
+
+  const content = scroll ? (
+    avoidKeyboard ? (
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={keyboardVerticalOffset}
+        enabled={Platform.OS === 'ios'}
+      >
+        {scrollView}
+      </KeyboardAvoidingView>
+    ) : (
+      scrollView
+    )
   ) : (
     <View
       style={{
@@ -122,9 +156,8 @@ export default function ScreenWrapper({
       style={{
         flex: 1,
         backgroundColor: theme.colors.background,
-        ...(Platform.OS === 'android' ? { paddingTop: 0 } : {}),
       }}
-      edges={['top', 'left', 'right']}
+      edges={edges}
     >
       <MeshBackground isDark={theme.isDark} width={width} />
       {content}

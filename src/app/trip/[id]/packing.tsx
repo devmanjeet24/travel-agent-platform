@@ -4,6 +4,7 @@ import { useLocalSearchParams } from 'expo-router'
 import { Check } from 'lucide-react-native'
 
 import { Card } from '@/components/ui/Card'
+import TripScreenWrapper from '@/components/trip/TripScreenWrapper'
 import { useTripPackingQuery } from '@/hooks/trips/use-trip-query'
 import { togglePackingItem } from '@/services/trips/trip-api'
 import { tripKeys } from '@/services/trips/trip-keys'
@@ -25,14 +26,14 @@ export default function PackingScreen() {
 
   if (isLoading) {
     return (
-      <View className={`flex-1 ${theme.bg} items-center justify-center`}>
+      <TripScreenWrapper scroll={false} centered className={theme.bg}>
         <ActivityIndicator color={brand.primaryDark} />
-      </View>
+      </TripScreenWrapper>
     )
   }
 
   return (
-    <View className={`flex-1 ${theme.bg} px-5 pb-8`}>
+    <TripScreenWrapper className={theme.bg}>
       <Text className={`${theme.textMuted} text-sm mb-4`}>
         Weather-based list · {packedCount}/{items?.length ?? 0} packed
       </Text>
@@ -62,6 +63,6 @@ export default function PackingScreen() {
           </Pressable>
         ))
       )}
-    </View>
+    </TripScreenWrapper>
   )
 }

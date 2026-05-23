@@ -55,7 +55,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow access to attach trip photos in chat."
+          "photosPermission": "Allow access to choose a profile photo and attach trip photos in chat.",
+          "cameraPermission": "Allow camera access to take your profile photo."
         }
       ],
       [

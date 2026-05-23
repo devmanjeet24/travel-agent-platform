@@ -101,7 +101,7 @@ export default function SignupScreen() {
       <Input
         label="Password"
         placeholder="Min. 8 characters"
-        secureTextEntry
+        showPasswordToggle
         value={password}
         onChangeText={setPassword}
         error={error ?? undefined}

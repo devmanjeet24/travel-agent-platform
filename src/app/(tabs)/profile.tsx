@@ -2,13 +2,15 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { ChevronRight, LogOut, Settings } from 'lucide-react-native'
 
-import { Avatar } from '@/components/ui/Avatar'
+import { ProfileAvatarEditor } from '@/components/profile/ProfileAvatarEditor'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { brand } from '@/constants/design'
 import { useResponsive } from '@/hooks/use-responsive'
 import { cardShadow, radii } from '@/lib/ui-styles'
+import { useJourneyStats } from '@/hooks/profile/use-journey-stats'
+import { useSyncProfileStats } from '@/hooks/profile/use-sync-profile-stats'
 import { useProfileQuery } from '@/hooks/profile/use-profile-query'
 import { useSignOutMutation } from '@/hooks/auth/use-sign-out-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
@@ -19,6 +21,8 @@ export default function ProfileScreen() {
   const theme = useThemedStyles()
   const { user, displayName } = useAuth()
   const { data: profile, isLoading } = useProfileQuery()
+  const { stats, isLoading: statsLoading } = useJourneyStats()
+  useSyncProfileStats()
   const signOutMutation = useSignOutMutation()
   const { scaleFont, isDesktop } = useResponsive()
 
@@ -51,7 +55,7 @@ export default function ProfileScreen() {
           cardShadow(theme.isDark),
         ]}
       >
-        <Avatar uri={profile?.avatar_url ?? undefined} name={name} size="lg" />
+        <ProfileAvatarEditor uri={profile?.avatar_url ?? undefined} name={name} size="lg" />
         <Text
           style={{
             color: brand.onPrimary,
@@ -65,14 +69,14 @@ export default function ProfileScreen() {
         <Text style={{ color: 'rgba(255,255,255,0.8)', marginTop: 6, fontSize: 14 }}>{email}</Text>
       </View>
 
-      {isLoading ? (
+      {isLoading || statsLoading ? (
         <ActivityIndicator style={{ marginTop: 24 }} color={brand.primaryDark} />
       ) : (
         <View style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
           {[
-            { label: 'Trips', value: profile?.trips_count ?? 0 },
-            { label: 'Countries', value: profile?.countries_visited ?? 0 },
-            { label: 'AI plans', value: profile?.ai_plans_generated ?? 0 },
+            { label: 'Trips', value: stats.tripsCount },
+            { label: 'Countries', value: stats.countriesCount },
+            { label: 'AI plans', value: stats.aiPlansCount },
           ].map((stat) => (
             <View
               key={stat.label}
@@ -146,6 +150,7 @@ export default function ProfileScreen() {
       <Button
         title="Edit profile"
         variant="outline"
+        onPress={() => router.push('/edit-profile')}
         style={{ marginTop: 12, maxWidth: isDesktop ? 280 : undefined, alignSelf: isDesktop ? 'flex-start' : 'stretch' }}
       />
     </ScreenWrapper>

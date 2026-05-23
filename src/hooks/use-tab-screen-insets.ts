@@ -23,12 +23,17 @@ export function useTabScreenInsets() {
     ? tabBarHeight + 24
     : tabBarHeight + Math.max(insets.bottom, 8) + 8
 
+  /** Web tab bar floats over content; native tab screens end above the bar (no tabBarHeight offset). */
+  const composerBottomPadding = isWeb
+    ? tabBarHeight + Math.max(insets.bottom, 16) + 12
+    : 10
+
   return {
     insets,
     tabBarHeight,
     horizontalPadding,
     scrollBottomPadding,
-    composerBottomPadding: tabBarHeight + Math.max(insets.bottom, Platform.OS === 'ios' ? 4 : 12),
+    composerBottomPadding,
   }
 }
 

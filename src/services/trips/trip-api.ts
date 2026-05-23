@@ -15,10 +15,30 @@ export type CreateTripInput = {
   startDate?: string;
   endDate?: string;
   travelers?: number;
+  /** Budget in INR (persisted in trips.budget_usd). */
   budgetUsd?: number;
   status?: TripRow['status'];
   originCity?: string;
 };
+
+/** Trip IDs that have at least one saved itinerary day (AI plan generated). */
+export async function fetchTripIdsWithItinerary(): Promise<Set<string>> {
+  const supabase = getSupabaseOrNull();
+  if (!supabase) return new Set();
+
+  const { data: trips, error: tripsErr } = await supabase.from('trips').select('id');
+  if (tripsErr) throw new Error(tripsErr.message);
+  const tripIds = (trips ?? []).map((t) => t.id as string);
+  if (!tripIds.length) return new Set();
+
+  const { data: days, error } = await supabase
+    .from('itinerary_days')
+    .select('trip_id')
+    .in('trip_id', tripIds);
+
+  if (error) throw new Error(error.message);
+  return new Set((days ?? []).map((d) => d.trip_id as string));
+}
 
 export async function fetchTrips(): Promise<TripRow[]> {
   const supabase = getSupabaseOrNull();
@@ -80,12 +100,32 @@ export async function createTrip(input: CreateTripInput): Promise<TripRow> {
     .eq('id', user.id)
     .single();
 
-  await supabase
+  const { error: profileErr } = await supabase
     .from('profiles')
-    .update({ trips_count: (profile?.trips_count ?? 0) + 1 })
+    .update({
+      trips_count: (profile?.trips_count ?? 0) + 1,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', user.id);
 
+  if (profileErr) {
+    console.warn('Could not update profile trips_count:', profileErr.message);
+  }
+
   return data as TripRow;
+}
+
+export async function deleteTrip(id: string): Promise<void> {
+  const supabase = getSupabaseOrNull();
+  if (!supabase) throw new Error('Supabase not configured');
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Sign in to delete a trip');
+
+  const { error } = await supabase.from('trips').delete().eq('id', id);
+  if (error) throw new Error(error.message);
 }
 
 export async function updateTrip(

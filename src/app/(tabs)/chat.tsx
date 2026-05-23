@@ -1,39 +1,44 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  ActivityIndicator,
   FlatList,
   Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   Text,
-  TextInput,
   View,
 } from 'react-native'
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { useLocalSearchParams } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
 import * as ImagePicker from 'expo-image-picker'
-import { Image as ImageIcon, Mic, Paperclip, Send, Sparkles, X } from 'lucide-react-native'
+import { Paperclip, Sparkles, X } from 'lucide-react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import { ChatComposer } from '@/components/chat/ChatComposer'
+import { ChatHeader } from '@/components/chat/ChatHeader'
 import { ChatBubble } from '@/components/ui/ChatBubble'
 import { brand } from '@/constants/design'
 import { useResponsive } from '@/hooks/use-responsive'
+import { useKeyboardBottomInset } from '@/hooks/use-keyboard-bottom-inset'
 import { useTabScreenInsets } from '@/hooks/use-tab-screen-insets'
-import { cardShadow, radii } from '@/lib/ui-styles'
+import { useVoiceAssistant } from '@/hooks/use-voice-assistant'
+import { radii } from '@/lib/ui-styles'
 import { sendChatWithStream } from '@/lib/edge-fetch'
-import { createVoiceRecorder } from '@/lib/voice-recording'
+import { stopSpeaking } from '@/lib/voice-tts'
 import {
+  fetchConversationById,
   fetchConversationMessages,
   fetchLatestConversation,
 } from '@/services/chat/chat-db'
 import { parseTripContextFromMessage } from '@/utils/trip-context-parse'
+import { deriveChatTitle } from '@/utils/chat-title'
 import type { ChatAttachment, ChatHistoryItem, ChatMessage } from '@/services/chat'
-import { transcribeFromUri } from '@/lib/voice-recording'
 import { uploadChatAttachment } from '@/services/travel/travel-api'
 import { useAuth } from '@/providers/auth-provider'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
+
+const DEFAULT_HEADER_TITLE = 'AI Travel Agent'
 
 function formatTime(date = new Date()) {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -50,24 +55,28 @@ export default function ChatScreen() {
   const { user } = useAuth()
   const insets = useSafeAreaInsets()
   const tabBarHeight = useBottomTabBarHeight()
-  const { horizontalPadding, scaleFont, contentWidth, isSmallPhone } = useResponsive()
+  const { horizontalPadding, contentWidth } = useResponsive()
   const tabInsets = useTabScreenInsets()
   const params = useLocalSearchParams<{ tripId?: string; conversationId?: string }>()
   const listRef = useRef<FlatList<ChatMessage>>(null)
-  const voiceRecorderRef = useRef<Awaited<ReturnType<typeof createVoiceRecorder>> | null>(null)
+  const speakReplyRef = useRef<(reply: string) => Promise<void>>(async () => {})
+  const shouldSpeakRef = useRef(false)
 
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
-  const [isRecording, setIsRecording] = useState(false)
   const [conversationId, setConversationId] = useState<string | undefined>(params.conversationId)
+  const [conversationTitle, setConversationTitle] = useState(DEFAULT_HEADER_TITLE)
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
 
-  const composerBottomPad = tabInsets.composerBottomPadding
-  const keyboardOffset =
-    Platform.OS === 'ios' ? tabBarHeight + insets.top : Platform.OS === 'android' ? 0 : 0
+  const keyboardInset = useKeyboardBottomInset()
+  const composerBottomPad =
+    Platform.OS === 'android'
+      ? tabInsets.composerBottomPadding + keyboardInset
+      : tabInsets.composerBottomPadding
+  const keyboardOffset = Platform.OS === 'ios' ? tabBarHeight + insets.top : 0
   const listPadX = horizontalPadding
 
   const scrollToEnd = useCallback(() => {
@@ -76,13 +85,129 @@ export default function ChatScreen() {
     })
   }, [])
 
+  const sendMessage = useCallback(
+    async (text: string, options?: { speakReply?: boolean }) => {
+      const trimmed = text.trim()
+      if ((!trimmed && !pendingAttachments.length) || isSending) return
+
+      if (options?.speakReply) shouldSpeakRef.current = true
+
+      setError(null)
+      setWarning(null)
+      setIsSending(true)
+
+      const attachmentNote = pendingAttachments.length
+        ? `\n[Attachments: ${pendingAttachments.map((a) => `${a.name}: ${a.url}`).join(', ')}]`
+        : ''
+
+      const userMessage: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: (trimmed || 'See attachments') + attachmentNote,
+        timestamp: formatTime(),
+        attachments: [...pendingAttachments],
+      }
+
+      if (!conversationId && trimmed) {
+        setConversationTitle(deriveChatTitle(trimmed))
+      }
+
+      const history = toHistory(messages)
+      const assistantId = `assistant-${Date.now()}`
+      const attachmentsToSend = [...pendingAttachments]
+
+      setMessages((prev) => [
+        ...prev,
+        userMessage,
+        {
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          timestamp: formatTime(),
+          streaming: true,
+        },
+      ])
+      setInput('')
+      setPendingAttachments([])
+      scrollToEnd()
+
+      const tripContext = parseTripContextFromMessage(trimmed)
+
+      await sendChatWithStream(
+        {
+          message: (trimmed || 'Please review my attachments for trip planning.') + attachmentNote,
+          history,
+          conversationId,
+          tripId: params.tripId,
+          attachments: attachmentsToSend,
+          tripContext: Object.keys(tripContext).length ? tripContext : undefined,
+        },
+        {
+          onDelta: (delta) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: m.content + delta, streaming: true }
+                  : m,
+              ),
+            )
+            scrollToEnd()
+          },
+          onDone: ({ reply, conversationId: newConvId, title, warning: w }) => {
+            if (newConvId) setConversationId(newConvId)
+            if (title) setConversationTitle(title)
+            if (w) setWarning(w)
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, content: reply, streaming: false } : m,
+              ),
+            )
+            setIsSending(false)
+            scrollToEnd()
+            if (shouldSpeakRef.current && reply.trim()) {
+              shouldSpeakRef.current = false
+              void speakReplyRef.current(reply)
+            }
+          },
+          onError: (msg) => {
+            setError(msg)
+            setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+            setIsSending(false)
+            shouldSpeakRef.current = false
+          },
+          onWarning: (msg) => setWarning(msg),
+        },
+      )
+    },
+    [
+      conversationId,
+      isSending,
+      messages,
+      params.tripId,
+      pendingAttachments,
+      scrollToEnd,
+    ],
+  )
+
+  const voice = useVoiceAssistant({
+    onTranscript: async (text) => {
+      await sendMessage(text, { speakReply: true })
+    },
+    onError: (msg) => setError(msg),
+  })
+
+  speakReplyRef.current = voice.speakReply
+
   useEffect(() => {
     void (async () => {
       try {
         const convId = params.conversationId ?? (await fetchLatestConversation())?.id
         if (!convId) return
 
-        const rows = await fetchConversationMessages(convId)
+        const [conv, rows] = await Promise.all([
+          fetchConversationById(convId),
+          fetchConversationMessages(convId),
+        ])
         setMessages(
           rows.map((r) => ({
             id: r.id,
@@ -93,93 +218,24 @@ export default function ChatScreen() {
           })),
         )
         setConversationId(convId)
+        if (conv?.title) setConversationTitle(conv.title)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not load history')
       }
     })()
   }, [params.conversationId, user?.id])
 
-  const handleSend = async () => {
-    const text = input.trim()
-    if ((!text && !pendingAttachments.length) || isSending) return
-
-    setError(null)
-    setWarning(null)
-    setIsSending(true)
-
-    const attachmentNote = pendingAttachments.length
-      ? `\n[Attachments: ${pendingAttachments.map((a) => `${a.name}: ${a.url}`).join(', ')}]`
-      : ''
-
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: (text || 'See attachments') + attachmentNote,
-      timestamp: formatTime(),
-      attachments: [...pendingAttachments],
-    }
-
-    const history = toHistory(messages)
-    const assistantId = `assistant-${Date.now()}`
-    const attachmentsToSend = [...pendingAttachments]
-
-    setMessages((prev) => [
-      ...prev,
-      userMessage,
-      {
-        id: assistantId,
-        role: 'assistant',
-        content: '',
-        timestamp: formatTime(),
-        streaming: true,
-      },
-    ])
+  const handleNewChat = useCallback(async () => {
+    await voice.interrupt()
+    setMessages([])
+    setConversationId(undefined)
+    setConversationTitle(DEFAULT_HEADER_TITLE)
     setInput('')
     setPendingAttachments([])
-    scrollToEnd()
-
-    const tripContext = parseTripContextFromMessage(text)
-
-    await sendChatWithStream(
-      {
-        message: (text || 'Please review my attachments for trip planning.') + attachmentNote,
-        history,
-        conversationId,
-        tripId: params.tripId,
-        attachments: attachmentsToSend,
-        tripContext: Object.keys(tripContext).length ? tripContext : undefined,
-      },
-      {
-        onDelta: (delta) => {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: m.content + delta, streaming: true }
-                : m,
-            ),
-          )
-          scrollToEnd()
-        },
-        onDone: ({ reply, conversationId: newConvId, warning: w }) => {
-          if (newConvId) setConversationId(newConvId)
-          if (w) setWarning(w)
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, content: reply, streaming: false } : m,
-            ),
-          )
-          setIsSending(false)
-          scrollToEnd()
-        },
-        onError: (msg) => {
-          setError(msg)
-          setMessages((prev) => prev.filter((m) => m.id !== assistantId))
-          setIsSending(false)
-        },
-        onWarning: (msg) => setWarning(msg),
-      },
-    )
-  }
+    setError(null)
+    setWarning(null)
+    setIsSending(false)
+  }, [voice])
 
   const pickAttachment = async () => {
     if (!user) {
@@ -233,94 +289,33 @@ export default function ChatScreen() {
     }
   }
 
-  const toggleRecording = async () => {
-    if (isRecording) {
-      setIsRecording(false)
-      try {
-        const rec = voiceRecorderRef.current
-        const uri = rec ? await rec.stop() : null
-        voiceRecorderRef.current = null
-        if (!uri) return
-        setIsSending(true)
-        const text = await transcribeFromUri(uri)
-        if (text) setInput((prev) => (prev ? `${prev} ${text}` : text))
-        setError(null)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Transcription failed')
-      } finally {
-        setIsSending(false)
-      }
-      return
-    }
-
-    try {
-      voiceRecorderRef.current = await createVoiceRecorder()
-      await voiceRecorderRef.current.start()
-      setIsRecording(true)
-      setError(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not start recording')
-    }
-  }
-
   const removeAttachment = (url: string) => {
     setPendingAttachments((prev) => prev.filter((a) => a.url !== url))
   }
 
-  const canSend = (input.trim().length > 0 || pendingAttachments.length > 0) && !isSending
+  const canSend =
+    (input.trim().length > 0 || pendingAttachments.length > 0) &&
+    !isSending &&
+    !voice.isBusy
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={keyboardOffset}
+        enabled={Platform.OS === 'ios'}
       >
-        <View
-          style={{
-            paddingTop: Platform.OS === 'android' ? 8 : insets.top + 8,
-            paddingHorizontal: listPadX,
-            paddingBottom: 12,
-            borderBottomWidth: 1,
-            borderBottomColor: theme.colors.border,
-            backgroundColor: theme.colors.card,
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                backgroundColor: brand.primaryLight,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Sparkles size={22} color={brand.primaryDark} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  color: theme.colors.text,
-                  fontSize: scaleFont(18),
-                  fontWeight: '800',
-                }}
-              >
-                AI Travel Agent
-              </Text>
-              <Text
-                style={{
-                  color: theme.colors.textMuted,
-                  fontSize: scaleFont(13),
-                  marginTop: 2,
-                }}
-              >
-                Live weather · hotels · itineraries
-              </Text>
-            </View>
-          </View>
-        </View>
+        <ChatHeader
+          title={conversationTitle}
+          subtitle={
+            messages.length === 0
+              ? 'Live weather · hotels · itineraries'
+              : `${messages.length} message${messages.length === 1 ? '' : 's'}`
+          }
+          onNewChat={() => void handleNewChat()}
+          disabled={isSending || voice.isBusy}
+        />
 
         {error ? (
           <View
@@ -403,16 +398,17 @@ export default function ChatScreen() {
           style={{ flex: 1 }}
           contentContainerStyle={{
             paddingHorizontal: listPadX,
-            paddingTop: 12,
-            paddingBottom: 16,
+            paddingTop: 16,
+            paddingBottom: 12 + (Platform.OS === 'android' ? keyboardInset : 0),
             flexGrow: 1,
           }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           showsVerticalScrollIndicator={false}
           onContentSizeChange={scrollToEnd}
           ListEmptyComponent={
-            <View style={{ alignItems: 'center', paddingTop: 48, paddingHorizontal: 24 }}>
+            <View style={{ alignItems: 'center', paddingTop: 56, paddingHorizontal: 28 }}>
               <View
                 style={{
                   width: 72,
@@ -421,7 +417,7 @@ export default function ChatScreen() {
                   backgroundColor: brand.primaryLight,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  marginBottom: 16,
+                  marginBottom: 20,
                 }}
               >
                 <Sparkles size={32} color={brand.primaryDark} />
@@ -429,30 +425,50 @@ export default function ChatScreen() {
               <Text
                 style={{
                   color: theme.colors.text,
-                  fontSize: 18,
+                  fontSize: 20,
                   fontWeight: '700',
                   textAlign: 'center',
+                  letterSpacing: -0.3,
                 }}
               >
-                Start planning your trip
+                Where should we go?
               </Text>
               <Text
                 style={{
                   color: theme.colors.textMuted,
                   textAlign: 'center',
-                  marginTop: 8,
-                  lineHeight: 22,
+                  marginTop: 10,
+                  lineHeight: 24,
                   fontSize: 15,
                 }}
               >
-                Try: &quot;5 days in Bali in August, 2 people, $3000 budget, flying from Delhi.&quot;
+                Ask about destinations, budgets, or day-by-day plans. Tap the mic for a voice
+                conversation with spoken replies.
               </Text>
+              <Pressable
+                onPress={() =>
+                  setInput('5 days in Goa in August, 2 people, ₹50000 budget, from Delhi.')
+                }
+                style={{
+                  marginTop: 20,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderRadius: radii.pill,
+                  backgroundColor: theme.colors.card,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                }}
+              >
+                <Text style={{ color: brand.primaryDark, fontSize: 14, fontWeight: '600' }}>
+                  Try a sample prompt
+                </Text>
+              </Pressable>
             </View>
           }
           renderItem={({ item }) => (
             <View>
               <ChatBubble
-                message={item.content || (item.streaming ? '…' : '')}
+                message={item.content}
                 role={item.role}
                 timestamp={item.timestamp}
                 streaming={item.streaming}
@@ -477,93 +493,21 @@ export default function ChatScreen() {
           )}
         />
 
-        <View
-          style={{
-            paddingHorizontal: listPadX,
-            paddingTop: 10,
-            paddingBottom: composerBottomPad,
-            borderTopWidth: 1,
-            borderTopColor: theme.colors.border,
-            backgroundColor: theme.colors.background,
-          }}
-        >
-          <View
-            style={[
-              {
-                flexDirection: 'row',
-                alignItems: 'flex-end',
-                backgroundColor: theme.colors.card,
-                borderRadius: radii.xl,
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                paddingHorizontal: 8,
-                paddingVertical: 8,
-                maxWidth: contentWidth,
-                alignSelf: 'center',
-                width: '100%',
-              },
-              cardShadow(theme.isDark),
-            ]}
-          >
-            <Pressable style={{ padding: isSmallPhone ? 8 : 10 }} onPress={pickAttachment}>
-              <Paperclip size={isSmallPhone ? 20 : 22} color={theme.colors.icon} />
-            </Pressable>
-            <Pressable style={{ padding: isSmallPhone ? 8 : 10 }} onPress={pickImage}>
-              <ImageIcon size={isSmallPhone ? 20 : 22} color={brand.primaryDark} />
-            </Pressable>
-            <TextInput
-              placeholder="Message your travel agent..."
-              placeholderTextColor={theme.colors.textMuted}
-              multiline
-              value={input}
-              onChangeText={setInput}
-              editable={!isSending}
-              onSubmitEditing={() => {
-                if (canSend) void handleSend()
-              }}
-              blurOnSubmit={false}
-              style={{
-                flex: 1,
-                color: theme.colors.text,
-                fontSize: scaleFont(16),
-                lineHeight: 22,
-                maxHeight: 120,
-                paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-                paddingHorizontal: 4,
-              }}
-            />
-            <Pressable
-              style={{
-                padding: 10,
-                borderRadius: radii.pill,
-                backgroundColor: isRecording ? `${brand.danger}18` : 'transparent',
-              }}
-              onPress={toggleRecording}
-              disabled={isSending}
-            >
-              <Mic size={22} color={isRecording ? brand.danger : brand.primaryDark} />
-            </Pressable>
-            <Pressable
-              onPress={() => void handleSend()}
-              disabled={!canSend}
-              style={{
-                width: isSmallPhone ? 40 : 44,
-                height: isSmallPhone ? 40 : 44,
-                borderRadius: isSmallPhone ? 20 : 22,
-                backgroundColor: canSend ? brand.primaryDark : theme.colors.muted,
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginLeft: 4,
-              }}
-            >
-              {isSending ? (
-                <ActivityIndicator size="small" color={brand.onPrimary} />
-              ) : (
-                <Send size={20} color={canSend ? brand.onPrimary : theme.colors.icon} />
-              )}
-            </Pressable>
-          </View>
-        </View>
+        <ChatComposer
+          input={input}
+          onChangeText={setInput}
+          onSend={() => void sendMessage(input)}
+          onPickAttachment={() => void pickAttachment()}
+          onPickImage={() => void pickImage()}
+          onToggleVoice={() => void voice.toggleRecording()}
+          onStopVoice={() => void stopSpeaking().then(() => voice.interrupt())}
+          canSend={canSend}
+          isSending={isSending}
+          voicePhase={voice.phase}
+          paddingHorizontal={listPadX}
+          paddingBottom={composerBottomPad}
+          contentWidth={contentWidth}
+        />
       </KeyboardAvoidingView>
     </View>
   )

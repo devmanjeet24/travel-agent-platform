@@ -36,7 +36,8 @@ export type SendChatVariables = {
     origin?: string;
     startDate?: string;
     endDate?: string;
-    budgetUsd?: number;
+    /** Budget in INR. */
+    budgetInr?: number;
     travelers?: number;
   };
   stream?: boolean;

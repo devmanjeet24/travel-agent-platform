@@ -10,11 +10,31 @@ export async function readFileAsArrayBuffer(uri: string): Promise<ArrayBuffer> {
   if (Platform.OS === 'web') {
     const res = await fetch(uri);
     if (!res.ok) throw new Error('Could not read file for upload');
-    return res.arrayBuffer();
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength === 0) throw new Error('Selected file is empty');
+    return buf;
   }
 
   const file = new File(uri);
-  return file.arrayBuffer();
+  if (!file.exists) {
+    throw new Error('Could not read photo file. Try choosing the image again.');
+  }
+
+  try {
+    const buf = await file.arrayBuffer();
+    if (buf.byteLength === 0) throw new Error('Selected file is empty');
+    return buf;
+  } catch (firstError) {
+    try {
+      const res = await fetch(uri);
+      if (!res.ok) throw firstError;
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength === 0) throw new Error('Selected file is empty');
+      return buf;
+    } catch {
+      throw firstError instanceof Error ? firstError : new Error('Could not read file for upload');
+    }
+  }
 }
 
 export async function uploadChatAttachmentFile(params: {

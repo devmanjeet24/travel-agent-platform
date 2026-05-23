@@ -107,7 +107,7 @@ export default function LoginScreen() {
           <Input
             label="Password"
             placeholder="••••••••"
-            secureTextEntry
+            showPasswordToggle
             value={password}
             onChangeText={setPassword}
             returnKeyType="go"

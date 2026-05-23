@@ -1,4 +1,4 @@
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 import { useLocalSearchParams } from 'expo-router'
 
 import {
@@ -6,6 +6,7 @@ import {
   openAttractionInMaps,
   TripMap,
 } from '@/components/maps/TripMap'
+import TripScreenWrapper from '@/components/trip/TripScreenWrapper'
 import { demoMapRegion } from '@/constants/trip-attractions'
 import { useTripItineraryQuery, useTripQuery } from '@/hooks/trips/use-trip-query'
 import { itineraryToAttractions, regionFromAttractions } from '@/utils/itinerary-map'
@@ -49,28 +50,24 @@ export default function MapScreen() {
 
   if (isLoading) {
     return (
-      <View className={`flex-1 ${theme.bg} items-center justify-center`}>
+      <TripScreenWrapper scroll={false} centered className={theme.bg}>
         <ActivityIndicator color={brand.primaryDark} />
-      </View>
+      </TripScreenWrapper>
     )
   }
 
   if (!attractions.length) {
     return (
-      <View className={`flex-1 ${theme.bg} px-5 justify-center`}>
+      <TripScreenWrapper centered className={theme.bg}>
         <Text className={`${theme.textMuted} text-center leading-6`}>
           No map points yet. Regenerate your AI plan or open a trip with a geocoded destination.
         </Text>
-      </View>
+      </TripScreenWrapper>
     )
   }
 
   return (
-    <ScrollView
-      className={`flex-1 ${theme.bg}`}
-      contentContainerClassName="px-5 pb-8 pt-2"
-      showsVerticalScrollIndicator={false}
-    >
+    <TripScreenWrapper className={theme.bg}>
       <View className="h-[360px]">
         <TripMap attractions={attractions} initialRegion={region} />
       </View>
@@ -82,6 +79,6 @@ export default function MapScreen() {
           onNavigate={() => openAttractionInMaps(a)}
         />
       ))}
-    </ScrollView>
+    </TripScreenWrapper>
   )
 }

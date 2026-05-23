@@ -1,5 +1,5 @@
-import { Image, Text, View } from 'react-native'
-import { ChevronRight, MapPin } from 'lucide-react-native'
+import { Image, Pressable, Text, View } from 'react-native'
+import { ChevronRight, MapPin, Trash2 } from 'lucide-react-native'
 
 import { brand, defaultTripImage } from '@/constants/design'
 import { radii } from '@/lib/ui-styles'
@@ -12,6 +12,7 @@ interface Props {
   imageUri?: string
   status?: 'upcoming' | 'saved' | 'completed'
   onPress?: () => void
+  onDelete?: () => void
 }
 
 function statusStyle(status: Props['status'], isDark: boolean) {
@@ -30,6 +31,7 @@ export function TripCard({
   imageUri,
   status = 'saved',
   onPress,
+  onDelete,
 }: Props) {
   const theme = useThemedStyles()
   const badge = statusStyle(status, theme.isDark)
@@ -82,18 +84,39 @@ export function TripCard({
             </Text>
           </View>
         </View>
-        <View
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 18,
-            backgroundColor: theme.colors.muted,
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginRight: 14,
-          }}
-        >
-          <ChevronRight size={18} color={brand.primaryDark} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 10, gap: 6 }}>
+          {onDelete ? (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation?.()
+                onDelete()
+              }}
+              hitSlop={10}
+              accessibilityLabel="Delete trip"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: theme.isDark ? 'rgba(239,68,68,0.15)' : '#FEE2E2',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Trash2 size={16} color={brand.danger} />
+            </Pressable>
+          ) : null}
+          <View
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: theme.colors.muted,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <ChevronRight size={18} color={brand.primaryDark} />
+          </View>
         </View>
       </View>
     </Card>

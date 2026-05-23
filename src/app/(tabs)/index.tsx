@@ -18,7 +18,8 @@ import {
 } from '@/constants/design'
 import { useResponsive } from '@/hooks/use-responsive'
 import { cardShadow, radii } from '@/lib/ui-styles'
-import { useProfileQuery } from '@/hooks/profile/use-profile-query'
+import { useJourneyStats } from '@/hooks/profile/use-journey-stats'
+import { useSyncProfileStats } from '@/hooks/profile/use-sync-profile-stats'
 import { useTripsQuery } from '@/hooks/trips/use-trips-query'
 import { formatTripDates, tripDaysUntil } from '@/services/trips/trip-api'
 import { useAuth } from '@/providers/auth-provider'
@@ -28,8 +29,9 @@ export default function HomeScreen() {
   const router = useRouter()
   const theme = useThemedStyles()
   const { displayName } = useAuth()
-  const { data: profile } = useProfileQuery()
   const { data: trips, isLoading } = useTripsQuery()
+  const { stats } = useJourneyStats()
+  useSyncProfileStats()
 
   const hour = new Date().getHours()
   const greeting =
@@ -183,9 +185,9 @@ export default function HomeScreen() {
 
       <SectionTitle title="Your journey" />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-        <StatCard label="Trips" value={profile?.trips_count ?? trips?.length ?? 0} />
-        <StatCard label="Countries" value={profile?.countries_visited ?? 0} accent={brand.accent} />
-        <StatCard label="AI plans" value={profile?.ai_plans_generated ?? 0} accent={brand.success} />
+        <StatCard label="Trips" value={stats.tripsCount} />
+        <StatCard label="Countries" value={stats.countriesCount} accent={brand.accent} />
+        <StatCard label="AI plans" value={stats.aiPlansCount} accent={brand.success} />
       </View>
 
       <View

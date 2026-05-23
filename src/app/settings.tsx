@@ -50,7 +50,7 @@ export default function SettingsScreen() {
 
   return (
     <RequireSession>
-      <ScreenWrapper scroll>
+      <ScreenWrapper scroll keyboardAvoiding>
         <ScreenHeader eyebrow="Account" title="Settings" subtitle="Preferences & app" showBack />
 
         <Card className="mb-4">

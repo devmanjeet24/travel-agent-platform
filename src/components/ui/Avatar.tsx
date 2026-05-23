@@ -1,4 +1,5 @@
-import { Image, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
+import { Image } from 'expo-image'
 
 import { brand } from '@/constants/design'
 
@@ -34,8 +35,11 @@ export function Avatar({ uri, name = '?', size = 'md' }: Props) {
     return (
       <View style={ringStyle}>
         <Image
+          key={uri}
           source={{ uri }}
           style={{ width: dim, height: dim, borderRadius: dim / 2 }}
+          cachePolicy="none"
+          recyclingKey={uri}
         />
       </View>
     )
