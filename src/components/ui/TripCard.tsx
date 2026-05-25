@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Image, Pressable, Text, View } from 'react-native'
 import { ChevronRight, MapPin, Trash2 } from 'lucide-react-native'
 
@@ -35,17 +36,26 @@ export function TripCard({
 }: Props) {
   const theme = useThemedStyles()
   const badge = statusStyle(status, theme.isDark)
+  const [imageFailed, setImageFailed] = useState(false)
+  const imageSource = imageFailed ? defaultTripImage : (imageUri ?? defaultTripImage)
+
+  useEffect(() => {
+    setImageFailed(false)
+  }, [imageUri])
 
   return (
     <Card onPress={onPress} className="mb-4" padded={false}>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Image
-          source={{ uri: imageUri ?? defaultTripImage }}
+          source={{ uri: imageSource }}
           style={{
             width: 88,
             height: 88,
             borderTopLeftRadius: radii.lg,
             borderBottomLeftRadius: radii.lg,
+          }}
+          onError={() => {
+            if (imageSource !== defaultTripImage) setImageFailed(true)
           }}
         />
         <View style={{ flex: 1, padding: 16, paddingLeft: 14 }}>

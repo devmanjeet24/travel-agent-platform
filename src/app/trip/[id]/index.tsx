@@ -78,8 +78,7 @@ export default function TripOverviewScreen() {
   )
 
   const handleRefreshTravel = async () => {
-    if (!trip?.start_date || !trip.end_date) {
-      Alert.alert('Add dates', 'Set start and end dates on this trip to search hotels.')
+    if (!trip) {
       return
     }
     setRefreshing(true)
@@ -87,18 +86,18 @@ export default function TripOverviewScreen() {
       await searchAndCacheHotels({
         tripId: trip.id,
         destination: trip.destination,
-        startDate: trip.start_date,
-        endDate: trip.end_date,
+        startDate: trip.start_date ?? undefined,
+        endDate: trip.end_date ?? undefined,
         budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
         destinationLat: trip.destination_lat,
         destinationLon: trip.destination_lon,
       })
-      if (trip.origin_city) {
+      if (trip.origin_city && trip.start_date) {
         const policy = await fetchRoutePolicy({
           origin: trip.origin_city,
           destination: trip.destination,
-          startDate: trip.start_date,
-          endDate: trip.end_date,
+          startDate: trip.start_date ?? undefined,
+          endDate: trip.end_date ?? undefined,
           budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
           travelers: trip.travelers,
         })
@@ -114,6 +113,8 @@ export default function TripOverviewScreen() {
         }
       }
       void queryClient.invalidateQueries({ queryKey: tripKeys.hotels(trip.id) })
+      void queryClient.invalidateQueries({ queryKey: tripKeys.detail(trip.id) })
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all })
       void queryClient.invalidateQueries({ queryKey: tripKeys.itinerary(trip.id) })
       Alert.alert(
         'Travel data updated',

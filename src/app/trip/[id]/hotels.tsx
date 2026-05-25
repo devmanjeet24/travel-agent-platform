@@ -20,11 +20,10 @@ export default function HotelsScreen() {
   const { data: trip } = useTripQuery(id)
   const { data: hotels, isLoading, isFetching, isError } = useTripHotelsQuery(id)
   const [refreshError, setRefreshError] = useState<string | null>(null)
-  useSyncTripTravel(trip)
+  const { hotelsSyncing, hotelsSyncError } = useSyncTripTravel(trip)
 
   const refresh = async () => {
-    if (!trip?.start_date || !trip.end_date) {
-      Alert.alert('Dates required', 'Add trip dates to search hotels.')
+    if (!trip) {
       return
     }
     setRefreshError(null)
@@ -32,12 +31,12 @@ export default function HotelsScreen() {
       const result = await searchAndCacheHotels({
         tripId: trip.id,
         destination: trip.destination,
-        startDate: trip.start_date,
-        endDate: trip.end_date,
+        startDate: trip.start_date ?? undefined,
+        endDate: trip.end_date ?? undefined,
         budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
         destinationLat: trip.destination_lat,
         destinationLon: trip.destination_lon,
-      }) as { error?: string | null; hotels?: unknown[] }
+      })
       await queryClient.invalidateQueries({ queryKey: tripKeys.hotels(trip.id) })
       void queryClient.invalidateQueries({ queryKey: tripKeys.detail(trip.id) })
       void queryClient.invalidateQueries({ queryKey: tripKeys.all })
@@ -51,14 +50,20 @@ export default function HotelsScreen() {
     }
   }
 
-  const loading = isLoading || (isFetching && !hotels?.length)
+  const syncError = refreshError ?? hotelsSyncError
+  const loading = isLoading || hotelsSyncing || (isFetching && !hotels?.length)
 
   return (
     <TripScreenWrapper className={theme.bg}>
-      <Button title="Refresh hotels" variant="outline" onPress={refresh} />
+      <Button
+        title={hotelsSyncing ? 'Searching OpenStreetMap hotels…' : 'Refresh hotels'}
+        variant="outline"
+        onPress={refresh}
+        disabled={hotelsSyncing}
+      />
 
-      {refreshError ? (
-        <Text className="text-red-500 text-sm mt-4 text-center">{refreshError}</Text>
+      {syncError ? (
+        <Text className="text-red-500 text-sm mt-4 text-center">{syncError}</Text>
       ) : null}
 
       {loading ? (
@@ -69,8 +74,7 @@ export default function HotelsScreen() {
         </Text>
       ) : !hotels?.length ? (
         <Text className={`${theme.textMuted} mt-6 text-center`}>
-          No hotels found for this destination yet. Add trip dates and tap refresh — we load real
-          listings from OpenStreetMap.
+          No OpenStreetMap hotels found for this destination yet. Tap refresh to search again.
         </Text>
       ) : (
         hotels.map((h) => <TripHotelCard key={h.id} hotel={h} />)

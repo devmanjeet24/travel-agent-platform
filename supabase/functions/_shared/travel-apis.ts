@@ -69,6 +69,11 @@ const OVERPASS_ENDPOINTS = [
   'https://overpass.openstreetmap.ru/api/interpreter',
 ] as const;
 
+const NOMINATIM_TIMEOUT_MS = 8_000;
+const OPEN_METEO_TIMEOUT_MS = 8_000;
+const OVERPASS_TIMEOUT_MS = 8_000;
+const WIKIDATA_TIMEOUT_MS = 5_000;
+
 const NOMINATIM_HEADERS = {
   'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge; educational)',
 };
@@ -94,6 +99,13 @@ function haversineKm(
       Math.cos((lat2 * Math.PI) / 180) *
       Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function isValidLatLon(lat: number, lon: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
+  if (Math.abs(lat) < 0.0001 && Math.abs(lon) < 0.0001) return false;
+  return true;
 }
 
 function parseStars(tags: Record<string, string>): number | null {
@@ -173,16 +185,61 @@ async function nominatimSearch(
     url.searchParams.set('featuretype', opts.featureType);
   }
 
-  const res = await fetch(url.toString(), { headers: NOMINATIM_HEADERS });
+  const res = await fetchWithTimeout(
+    url.toString(),
+    { headers: NOMINATIM_HEADERS },
+    NOMINATIM_TIMEOUT_MS,
+  );
   if (!res.ok) return [];
   return (await res.json()) as NominatimHit[];
 }
 
-async function destinationImageFromHit(hit: NominatimHit): Promise<string | null> {
+async function wikidataImageUrlForSearch(query: string): Promise<string | null> {
+  const q = query.trim();
+  if (!q) return null;
+  try {
+    const url = new URL('https://www.wikidata.org/w/api.php');
+    url.searchParams.set('action', 'wbsearchentities');
+    url.searchParams.set('search', q);
+    url.searchParams.set('language', 'en');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', '1');
+    const res = await fetchWithTimeout(
+      url.toString(),
+      { headers: { 'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge)' } },
+      WIKIDATA_TIMEOUT_MS,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const id = data?.search?.[0]?.id;
+    return typeof id === 'string' ? wikidataImageUrl(id) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function destinationImageFromHit(
+  hit: NominatimHit,
+  fallbackQuery: string,
+): Promise<string | null> {
   const tags = hit.extratags ?? {};
   const tagged = osmImageFromTags(tags);
   if (tagged) return tagged;
   if (tags.wikidata) return wikidataImageUrl(tags.wikidata);
+  const candidates = [
+    hit.address?.city,
+    hit.address?.town,
+    hit.address?.village,
+    hit.address?.state,
+    fallbackQuery,
+    hit.address?.country,
+  ].filter((value, index, values): value is string =>
+    Boolean(value?.trim()) && values.indexOf(value) === index
+  );
+  for (const candidate of candidates) {
+    const image = await wikidataImageUrlForSearch(candidate);
+    if (image) return image;
+  }
   return null;
 }
 
@@ -319,7 +376,7 @@ export async function geocodeDestination(query: string): Promise<GeoResult | nul
   }
   if (!hit) return null;
   const geo = hitToGeo(hit, q);
-  geo.imageUrl = await destinationImageFromHit(hit);
+  geo.imageUrl = await destinationImageFromHit(hit, q);
   return geo;
 }
 
@@ -350,18 +407,85 @@ export async function geocodeNearDestination(
   placeName: string,
   near: GeoResult,
 ): Promise<{ lat: number; lon: number } | null> {
-  const q = `${placeName}, ${near.name}`;
+  const cleanName = placeName.trim();
+  if (!cleanName) return null;
+
+  if (/\b(local market|local attractions|nearby attractions|things to do|free time)\b/i.test(cleanName)) {
+    console.debug('[travel-apis] skipped generic activity geocode', {
+      placeName: cleanName,
+      destination: near.displayName,
+    });
+    return null;
+  }
+
+  const q = `${cleanName}, ${near.displayName || near.name}`;
+  const radiusKm = 50;
+  const latDelta = radiusKm / 111;
+  const lonDelta = radiusKm /
+    (111 * Math.max(0.2, Math.cos((near.lat * Math.PI) / 180)));
   const url = new URL(`${NOMINATIM}/search`);
   url.searchParams.set('q', q);
   url.searchParams.set('format', 'json');
-  url.searchParams.set('limit', '1');
+  url.searchParams.set('limit', '5');
+  url.searchParams.set('addressdetails', '1');
+  url.searchParams.set(
+    'viewbox',
+    `${near.lon - lonDelta},${near.lat + latDelta},${near.lon + lonDelta},${near.lat - latDelta}`,
+  );
+  url.searchParams.set('bounded', '1');
 
-  const res = await fetch(url.toString(), { headers: NOMINATIM_HEADERS });
-  if (!res.ok) return null;
-  const data = (await res.json()) as Array<{ lat: string; lon: string }>;
-  const hit = data[0];
-  if (!hit) return null;
-  return { lat: Number(hit.lat), lon: Number(hit.lon) };
+  const res = await fetchWithTimeout(
+    url.toString(),
+    { headers: NOMINATIM_HEADERS },
+    NOMINATIM_TIMEOUT_MS,
+  );
+  if (!res.ok) {
+    console.warn('[travel-apis] activity geocode failed', {
+      placeName: cleanName,
+      status: res.status,
+    });
+    return null;
+  }
+  const data = (await res.json()) as NominatimHit[];
+  const candidates = data
+    .map((hit) => {
+      const lat = Number(hit.lat);
+      const lon = Number(hit.lon);
+      if (!isValidLatLon(lat, lon)) return null;
+      const distanceKm = haversineKm(near.lat, near.lon, lat, lon);
+      const cls = (hit.class ?? '').toLowerCase();
+      const type = (hit.type ?? '').toLowerCase();
+      const genericPlace = cls === 'boundary' ||
+        cls === 'place' ||
+        ['city', 'town', 'village', 'administrative', 'country'].includes(type);
+      if (distanceKm > radiusKm || genericPlace) return null;
+      return { hit, lat, lon, distanceKm };
+    })
+    .filter((item): item is {
+      hit: NominatimHit;
+      lat: number;
+      lon: number;
+      distanceKm: number;
+    } => Boolean(item))
+    .sort((a, b) => {
+      const importanceA = a.hit.importance ?? 0;
+      const importanceB = b.hit.importance ?? 0;
+      return a.distanceKm - b.distanceKm || importanceB - importanceA;
+    });
+
+  const best = candidates[0];
+  console.debug('[travel-apis] activity geocode result', {
+    placeName: cleanName,
+    destination: near.displayName,
+    hitCount: data.length,
+    accepted: Boolean(best),
+    lat: best?.lat ?? null,
+    lon: best?.lon ?? null,
+    distanceKm: best?.distanceKm ?? null,
+    displayName: best?.hit.display_name ?? null,
+  });
+  if (!best) return null;
+  return { lat: best.lat, lon: best.lon };
 }
 
 export async function fetchWeather(
@@ -379,7 +503,7 @@ export async function fetchWeather(
   url.searchParams.set('timezone', 'auto');
   url.searchParams.set('forecast_days', String(Math.min(days, 16)));
 
-  const res = await fetch(url.toString());
+  const res = await fetchWithTimeout(url.toString(), {}, OPEN_METEO_TIMEOUT_MS);
   if (!res.ok) return null;
 
   const data = await res.json();
@@ -445,7 +569,7 @@ async function overpassQuery(
           headers: OVERPASS_HEADERS,
           body: `data=${encodeURIComponent(query)}`,
         },
-        30_000,
+        OVERPASS_TIMEOUT_MS,
       );
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
@@ -475,9 +599,9 @@ function elementCoord(el: OsmElement): { lat: number; lon: number } | null {
 
 function osmHotelName(tags: Record<string, string>): string | null {
   const name =
-    tags.name?.trim() ??
-    tags['name:en']?.trim() ??
-    tags['official_name']?.trim() ??
+    tags.name?.trim() ||
+    tags['name:en']?.trim() ||
+    tags['official_name']?.trim() ||
     tags.brand?.trim();
   if (!name || /^hotel\s*\d*$/i.test(name)) return null;
   return name;
@@ -519,9 +643,10 @@ async function wikidataImageUrl(wikidataTag: string): Promise<string | null> {
     .trim();
   if (!/^Q\d+$/i.test(qid)) return null;
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://www.wikidata.org/wiki/Special:EntityData/${qid}.json`,
       { headers: { 'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge)' } },
+      WIKIDATA_TIMEOUT_MS,
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -572,7 +697,7 @@ function overpassString(value: string): string {
 
 function hotelOverpassQuery(geo: GeoResult, radiusMeters: number): string {
   return `
-[out:json][timeout:25];
+[out:json][timeout:8];
 (
   node["tourism"~"${HOTEL_TOURISM_VALUES}"](around:${radiusMeters},${geo.lat},${geo.lon});
   way["tourism"~"${HOTEL_TOURISM_VALUES}"](around:${radiusMeters},${geo.lat},${geo.lon});
@@ -595,6 +720,32 @@ function isBroadDestination(geo: GeoResult): boolean {
   );
 }
 
+const COUNTRY_HOTEL_ANCHORS: Record<string, string[]> = {
+  australia: ['Sydney, Australia', 'Melbourne, Australia', 'Brisbane, Australia'],
+  'new zealand': ['Auckland, New Zealand', 'Queenstown, New Zealand', 'Wellington, New Zealand'],
+  india: ['New Delhi, India', 'Mumbai, India', 'Jaipur, India'],
+  france: ['Paris, France', 'Nice, France', 'Lyon, France'],
+  japan: ['Tokyo, Japan', 'Kyoto, Japan', 'Osaka, Japan'],
+  indonesia: ['Bali, Indonesia', 'Jakarta, Indonesia', 'Ubud, Indonesia'],
+  thailand: ['Bangkok, Thailand', 'Phuket, Thailand', 'Chiang Mai, Thailand'],
+  italy: ['Rome, Italy', 'Venice, Italy', 'Florence, Italy'],
+  spain: ['Barcelona, Spain', 'Madrid, Spain', 'Seville, Spain'],
+  singapore: ['Singapore'],
+  nepal: ['Kathmandu, Nepal', 'Pokhara, Nepal'],
+};
+
+async function knownCountryAnchorGeos(geo: GeoResult): Promise<GeoResult[]> {
+  const key = (geo.country || geo.name).trim().toLowerCase();
+  const anchors = COUNTRY_HOTEL_ANCHORS[key] ?? [];
+  const results: GeoResult[] = [];
+  for (const anchor of anchors) {
+    const anchorGeo = await geocodeDestination(anchor);
+    if (anchorGeo) results.push(anchorGeo);
+    if (results.length >= 3) break;
+  }
+  return results;
+}
+
 function parsePopulation(tags: Record<string, string>): number {
   const raw = tags.population?.replace(/[^\d]/g, '');
   const population = raw ? Number(raw) : 0;
@@ -610,13 +761,13 @@ async function findCountryAnchorGeos(geo: GeoResult): Promise<GeoResult[]> {
     ? `area["ISO3166-1"="${overpassString(countryCode)}"]`
     : `area["name"="${overpassString(countryName)}"]["boundary"="administrative"]`;
   const cityQuery = `
-[out:json][timeout:30];
+[out:json][timeout:8];
 ${areaSelector}->.searchArea;
 node(area.searchArea)["place"="city"];
 out body;
 `;
   const townQuery = `
-[out:json][timeout:30];
+[out:json][timeout:8];
 ${areaSelector}->.searchArea;
 node(area.searchArea)["place"="town"];
 out body;
@@ -688,6 +839,120 @@ function namedHotelElements(
     .slice(0, 16);
 }
 
+function boundedViewbox(geo: GeoResult, radiusKm: number): string {
+  const latDelta = radiusKm / 111;
+  const lonDelta = radiusKm /
+    (111 * Math.max(0.2, Math.cos((geo.lat * Math.PI) / 180)));
+  return `${geo.lon - lonDelta},${geo.lat + latDelta},${geo.lon + lonDelta},${geo.lat - latDelta}`;
+}
+
+function hotelFallbackQueries(geo: GeoResult): string[] {
+  const place = geo.name.trim();
+  const country = geo.country.trim();
+  const displayPlace = geo.displayName.split(',')[0]?.trim() ?? place;
+  return [
+    place ? `hotel ${place}` : '',
+    displayPlace && displayPlace !== place ? `hotel ${displayPlace}` : '',
+    country && country !== place ? `hotel ${country}` : '',
+    'hotel',
+    'guest house',
+    'resort',
+  ].filter((query, index, queries): query is string =>
+    Boolean(query) && queries.indexOf(query) === index
+  );
+}
+
+async function searchHotelsNominatimFallback(
+  geo: GeoResult,
+  budgetInr?: number,
+): Promise<HotelOffer[]> {
+  const offers: HotelOffer[] = [];
+  const seen = new Set<string>();
+  let hitCount = 0;
+
+  for (const query of hotelFallbackQueries(geo)) {
+    const url = new URL(`${NOMINATIM}/search`);
+    url.searchParams.set('q', query);
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', '12');
+    url.searchParams.set('addressdetails', '1');
+    url.searchParams.set('extratags', '1');
+    url.searchParams.set('viewbox', boundedViewbox(geo, 60));
+    url.searchParams.set('bounded', '1');
+
+    const res = await fetchWithTimeout(
+      url.toString(),
+      { headers: NOMINATIM_HEADERS },
+      NOMINATIM_TIMEOUT_MS,
+    );
+    if (!res.ok) {
+      console.warn('[travel-apis] Nominatim hotel fallback failed', {
+        searchedFrom: geo.displayName,
+        query,
+        status: res.status,
+      });
+      continue;
+    }
+
+    const hits = (await res.json()) as NominatimHit[];
+    hitCount += hits.length;
+    for (const [index, hit] of hits.entries()) {
+      const lat = Number(hit.lat);
+      const lon = Number(hit.lon);
+      if (!isValidLatLon(lat, lon)) continue;
+      const name =
+        hit.extratags?.name?.trim() ||
+        hit.extratags?.brand?.trim() ||
+        hit.display_name.split(',')[0]?.trim();
+      if (!name || /^hotel\s*\d*$/i.test(name)) continue;
+      const key = `${name.toLowerCase()}|${lat.toFixed(5)},${lon.toFixed(5)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const distanceKm = Math.round(haversineKm(geo.lat, geo.lon, lat, lon) * 10) / 10;
+      const tags = hit.extratags ?? {};
+      const stars = parseStars(tags);
+      offers.push({
+        id: `nominatim/${lat.toFixed(6)},${lon.toFixed(6)}/${index}`,
+        name,
+        rating: stars,
+        pricePerNightUsd: estimateHotelPriceInr(stars, budgetInr),
+        imageUrl: osmImageFromTags(tags),
+        source: 'osm' as const,
+        raw: {
+          source: 'nominatim-osm',
+          address: hit.display_name,
+          distanceKm,
+          searchedFrom: geo.displayName,
+          fallbackQuery: query,
+          coord: { lat, lon },
+          osm: { tags },
+          priceSource: 'estimate',
+          priceNote: 'Estimated nightly rate — OSM has no live room prices for this property',
+        },
+      });
+    }
+
+    if (offers.length >= 8) break;
+  }
+
+  const sorted = offers
+    .sort((a, b) => {
+      const aDistance = Number(a.raw.distanceKm ?? 999);
+      const bDistance = Number(b.raw.distanceKm ?? 999);
+      return aDistance - bDistance;
+    })
+    .slice(0, 8);
+
+  console.debug('[travel-apis] Nominatim hotel fallback response', {
+    searchedFrom: geo.displayName,
+    hitCount,
+    hotelCount: sorted.length,
+    sampleNames: sorted.slice(0, 5).map((offer) => offer.name),
+  });
+  return sorted;
+}
+
 /** Real hotels from OpenStreetMap — names, addresses, images; nightly INR is estimated when OSM has no rate. */
 export async function searchHotelsOsm(
   geo: GeoResult,
@@ -704,6 +969,18 @@ export async function searchHotelsOsm(
         failOnError: true,
       });
       const candidates = namedHotelElements(elements, candidateGeo, budgetInr);
+      console.debug('[travel-apis] hotel API response', {
+        searchedFrom: candidateGeo.displayName,
+        lat: candidateGeo.lat,
+        lon: candidateGeo.lon,
+        radiusMeters,
+        elementCount: elements.length,
+        namedCandidateCount: candidates.length,
+        sampleNames: candidates
+          .slice(0, 5)
+          .map((el) => osmHotelName(el.tags ?? {}))
+          .filter(Boolean),
+      });
       if (candidates.length || radiusMeters === finalRadius) {
         return { candidates, radiusMeters };
       }
@@ -717,7 +994,8 @@ export async function searchHotelsOsm(
     searchRadiusMeters = primary.radiusMeters;
 
     if (!named.length && isBroadDestination(geo)) {
-      const anchors = await findCountryAnchorGeos(geo);
+      const anchors = await knownCountryAnchorGeos(geo);
+      if (!anchors.length) anchors.push(...(await findCountryAnchorGeos(geo)));
       for (const anchorGeo of anchors) {
         const anchored = await searchAround(anchorGeo);
         if (anchored.candidates.length) {
@@ -729,6 +1007,14 @@ export async function searchHotelsOsm(
       }
     }
   } catch (e) {
+    console.warn('[travel-apis] Overpass hotel search failed, trying Nominatim fallback', {
+      searchedFrom: geo.displayName,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    const fallbackOffers = await searchHotelsNominatimFallback(geo, budgetInr);
+    if (fallbackOffers.length) {
+      return { offers: fallbackOffers };
+    }
     return {
       offers: [],
       error: e instanceof Error ? e.message : 'OpenStreetMap hotel search failed.',
@@ -736,6 +1022,25 @@ export async function searchHotelsOsm(
   }
 
   if (!named.length) {
+    const fallbackGeos = [hotelGeo];
+    if (isBroadDestination(geo)) {
+      const anchors = await knownCountryAnchorGeos(geo);
+      if (!anchors.length) anchors.push(...(await findCountryAnchorGeos(geo)));
+      fallbackGeos.push(...anchors);
+    }
+    for (const fallbackGeo of fallbackGeos) {
+      const fallbackOffers = await searchHotelsNominatimFallback(fallbackGeo, budgetInr);
+      if (fallbackOffers.length) {
+        return { offers: fallbackOffers };
+      }
+    }
+    console.warn('[travel-apis] no named hotels after all searches', {
+      searchedFrom: hotelGeo.displayName,
+      lat: hotelGeo.lat,
+      lon: hotelGeo.lon,
+      searchRadiusMeters,
+      broadDestination: isBroadDestination(geo),
+    });
     return {
       offers: [],
       error: 'No named hotels found in OpenStreetMap for this area.',
@@ -810,7 +1115,7 @@ type AirportPoint = {
 
 async function findAirportsNear(geo: GeoResult): Promise<AirportPoint[]> {
   const query = `
-[out:json][timeout:25];
+[out:json][timeout:8];
 (
   node["aeroway"~"aerodrome|airport"]["iata"](around:120000,${geo.lat},${geo.lon});
   way["aeroway"~"aerodrome|airport"]["iata"](around:120000,${geo.lat},${geo.lon});
@@ -1079,10 +1384,14 @@ export async function buildTravelContext(input: {
   endDate?: string;
   budgetInr?: number;
   travelers?: number;
+  includeHotels?: boolean;
+  includeFlightOffers?: boolean;
 }): Promise<string> {
   const parts: string[] = [];
   const dest = input.destination?.trim();
   if (!dest) return '';
+  const includeHotels = input.includeHotels ?? true;
+  const includeFlightOffers = input.includeFlightOffers ?? true;
 
   const geo = await geocodeDestination(dest);
   if (geo) {
@@ -1099,19 +1408,21 @@ export async function buildTravelContext(input: {
       parts.push(`Daily sample: ${sample.join('; ')}`);
     }
 
-    const hotels = await searchHotelsOsm(geo, input.budgetInr);
-    if (hotels.offers.length) {
-      parts.push(
-        'Hotels (OpenStreetMap — real names/addresses; nightly INR estimated): ' +
-          hotels.offers
-            .map(
-              (h) =>
-                `${h.name}${h.rating ? ` ★${h.rating}` : ''} ~${h.pricePerNightUsd != null ? formatInr(h.pricePerNightUsd) : '?'}/night (estimate)`,
-            )
-            .join('; '),
-      );
-    } else if (hotels.error) {
-      parts.push(`Hotels note: ${hotels.error}`);
+    if (includeHotels) {
+      const hotels = await searchHotelsOsm(geo, input.budgetInr);
+      if (hotels.offers.length) {
+        parts.push(
+          'Hotels (OpenStreetMap — real names/addresses; nightly INR estimated): ' +
+            hotels.offers
+              .map(
+                (h) =>
+                  `${h.name}${h.rating ? ` ★${h.rating}` : ''} ~${h.pricePerNightUsd != null ? formatInr(h.pricePerNightUsd) : '?'}/night (estimate)`,
+              )
+              .join('; '),
+        );
+      } else if (hotels.error) {
+        parts.push(`Hotels note: ${hotels.error}`);
+      }
     }
 
     if (input.origin && input.startDate) {
@@ -1133,24 +1444,30 @@ export async function buildTravelContext(input: {
         const includeFlights = shouldIncludeFlights(route);
 
         if (includeFlights) {
-          const flights = await searchFlightsEstimate({
-            originGeo,
-            destGeo: geo,
-            departDate: input.startDate,
-            budgetInr: input.budgetInr,
-          });
-          if (flights.offers.length) {
+          if (includeFlightOffers) {
+            const flights = await searchFlightsEstimate({
+              originGeo,
+              destGeo: geo,
+              departDate: input.startDate,
+              budgetInr: input.budgetInr,
+            });
+            if (flights.offers.length) {
+              parts.push(
+                'Flights (estimated fares in INR, not live bookings): ' +
+                  flights.offers
+                    .map(
+                      (f) =>
+                        `${f.airline} ${f.route} ${f.departTime}-${f.arriveTime} ~${f.priceUsd != null ? formatInr(f.priceUsd) : '?'} (${f.stops})`,
+                    )
+                    .join('; '),
+              );
+            } else if (flights.error) {
+              parts.push(`Flights note: ${flights.error}`);
+            }
+          } else {
             parts.push(
-              'Flights (estimated fares in INR, not live bookings): ' +
-                flights.offers
-                  .map(
-                    (f) =>
-                      `${f.airline} ${f.route} ${f.departTime}-${f.arriveTime} ~${f.priceUsd != null ? formatInr(f.priceUsd) : '?'} (${f.stops})`,
-                  )
-                  .join('; '),
+              'Flights: Route analysis says flights may be appropriate; use realistic INR estimates and keep details concise.',
             );
-          } else if (flights.error) {
-            parts.push(`Flights note: ${flights.error}`);
           }
         } else {
           parts.push(

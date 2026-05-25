@@ -57,38 +57,41 @@ export default function TripWizardScreen() {
       await planTrip.mutateAsync(trip.id)
 
       if (user) {
-        try {
-          await createNotifications.mutateAsync({
+        void createNotifications
+          .mutateAsync({
             userId: user.id,
             tripId: trip.id,
             destination: trip.destination,
             startDate: trip.start_date,
           })
-        } catch (notificationError) {
-          console.warn(
-            'Could not create trip notifications:',
-            notificationError instanceof Error ? notificationError.message : notificationError,
-          )
-        }
+          .catch((notificationError) => {
+            console.warn(
+              'Could not create trip notifications:',
+              notificationError instanceof Error ? notificationError.message : notificationError,
+            )
+          })
       }
 
-      if (trip.start_date) {
-        try {
-          const remind = parseIsoDateString(trip.start_date)
-          if (remind) {
-            remind.setDate(remind.getDate() - 1)
-            await scheduleTripReminder({
-              title: 'Trip tomorrow',
-              body: `Your trip to ${trip.destination} starts soon.`,
-              triggerDate: remind,
-            })
+      const reminderStartDate = trip.start_date
+      if (reminderStartDate) {
+        void (async () => {
+          try {
+            const remind = parseIsoDateString(reminderStartDate)
+            if (remind) {
+              remind.setDate(remind.getDate() - 1)
+              await scheduleTripReminder({
+                title: 'Trip tomorrow',
+                body: `Your trip to ${trip.destination} starts soon.`,
+                triggerDate: remind,
+              })
+            }
+          } catch (reminderError) {
+            console.warn(
+              'Could not schedule trip reminder:',
+              reminderError instanceof Error ? reminderError.message : reminderError,
+            )
           }
-        } catch (reminderError) {
-          console.warn(
-            'Could not schedule trip reminder:',
-            reminderError instanceof Error ? reminderError.message : reminderError,
-          )
-        }
+        })()
       }
 
       router.replace(`/trip/${trip.id}` as never)

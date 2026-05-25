@@ -32,6 +32,26 @@ type SearchBody = {
   travelers?: number;
 };
 
+function isValidLatLon(lat: number | null | undefined, lon: number | null | undefined): boolean {
+  if (lat == null || lon == null) return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
+  if (Math.abs(lat) < 0.0001 && Math.abs(lon) < 0.0001) return false;
+  return true;
+}
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 Deno.serve(async (req) => {
   const options = handleOptions(req);
   if (options) return options;
@@ -80,18 +100,35 @@ Deno.serve(async (req) => {
     if (action === 'hotels') {
       const dest = body.destination ?? '';
       const destinationGeo = dest ? await geocodeDestination(dest) : null;
-      let geo =
-        body.lat != null && body.lon != null
-          ? geoFromCoordinates(
-            body.lat,
-            body.lon,
-            dest,
-            destinationGeo?.country ?? '',
-            destinationGeo?.countryCode,
-            destinationGeo?.placeType,
-            destinationGeo?.imageUrl ?? null,
-          )
+      const incomingCoordinatesValid = isValidLatLon(body.lat, body.lon);
+      const incomingDistanceFromGeocode =
+        incomingCoordinatesValid && destinationGeo
+          ? haversineKm(body.lat!, body.lon!, destinationGeo.lat, destinationGeo.lon)
           : null;
+      const useIncomingCoordinates =
+        incomingCoordinatesValid &&
+        (!destinationGeo || incomingDistanceFromGeocode == null || incomingDistanceFromGeocode < 250);
+      console.debug('[travel-search] hotel coordinates', {
+        destination: dest,
+        incomingLat: body.lat,
+        incomingLon: body.lon,
+        incomingCoordinatesValid,
+        geocodedLat: destinationGeo?.lat ?? null,
+        geocodedLon: destinationGeo?.lon ?? null,
+        incomingDistanceFromGeocode,
+        useIncomingCoordinates,
+      });
+      let geo = useIncomingCoordinates
+        ? geoFromCoordinates(
+          body.lat!,
+          body.lon!,
+          dest,
+          destinationGeo?.country ?? '',
+          destinationGeo?.countryCode,
+          destinationGeo?.placeType,
+          destinationGeo?.imageUrl ?? null,
+        )
+        : null;
       if (!geo) {
         geo = destinationGeo;
       }
@@ -99,16 +136,31 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: 'Destination not found' }, 404);
       }
       const result = await searchHotelsOsm(geo, budgetInr);
+      console.debug('[travel-search] hotel API response', {
+        destination: dest,
+        searchedFrom: geo.displayName,
+        lat: geo.lat,
+        lon: geo.lon,
+        hotelCount: result.offers.length,
+        error: result.error ?? null,
+      });
       const tripImageUrl =
         geo.imageUrl ?? result.offers.find((h) => h.imageUrl)?.imageUrl ?? null;
 
-      if (body.tripId && tripImageUrl) {
+      if (body.tripId) {
+        const tripPatch: Record<string, unknown> = {
+          destination_lat: geo.lat,
+          destination_lon: geo.lon,
+          country: geo.country || destinationGeo?.country || null,
+          updated_at: new Date().toISOString(),
+        };
+        if (tripImageUrl) tripPatch.image_url = tripImageUrl;
         const { error: tripImageError } = await supabase
           .from('trips')
-          .update({ image_url: tripImageUrl, updated_at: new Date().toISOString() })
+          .update(tripPatch)
           .eq('id', body.tripId);
         if (tripImageError) {
-          console.error('Could not update trip destination image:', tripImageError.message);
+          console.error('Could not update trip destination geo/image:', tripImageError.message);
         }
       }
 
