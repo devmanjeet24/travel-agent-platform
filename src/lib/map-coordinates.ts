@@ -34,3 +34,14 @@ export function zoomFromLatitudeDelta(latitudeDelta: number): number {
   const zoom = Math.round(Math.log2(360 / delta)) - 1;
   return Math.min(16, Math.max(4, zoom));
 }
+
+export function zoomFromRegion(
+  latitudeDelta: number,
+  longitudeDelta: number,
+  width = 1,
+  height = 1,
+): number {
+  const aspectRatio = Math.max(0.5, width / Math.max(1, height));
+  const effectiveDelta = Math.max(latitudeDelta, longitudeDelta / aspectRatio);
+  return zoomFromLatitudeDelta(effectiveDelta);
+}

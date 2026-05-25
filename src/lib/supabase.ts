@@ -19,6 +19,8 @@ export function getSupabase(): SupabaseClient {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: Platform.OS === 'web',
+        // PKCE puts ?code= on the redirect URL (survives Android deep links; hash tokens often do not).
+        flowType: Platform.OS === 'web' ? 'implicit' : 'pkce',
       },
     });
   }

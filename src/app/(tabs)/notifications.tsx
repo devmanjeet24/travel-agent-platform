@@ -1,4 +1,6 @@
-import { ActivityIndicator, Text } from 'react-native'
+import { useCallback } from 'react'
+import { ActivityIndicator, Text, View } from 'react-native'
+import { useFocusEffect } from '@react-navigation/native'
 import {
   Bell,
   Calendar,
@@ -9,6 +11,7 @@ import {
 import type { LucideIcon } from 'lucide-react-native'
 
 import { SwipeableNotificationRow } from '@/components/notifications/SwipeableNotificationRow'
+import { Button } from '@/components/ui/Button'
 import { ScreenHeader } from '@/components/ui/ScreenHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import {
@@ -30,9 +33,22 @@ const iconMap: Record<NotificationRow['type'], LucideIcon> = {
 
 export default function NotificationsScreen() {
   const theme = useThemedStyles()
-  const { data: notifications, isLoading } = useNotificationsQuery()
+  const {
+    data: notifications,
+    error,
+    isError,
+    isFetching,
+    isLoading,
+    refetch,
+  } = useNotificationsQuery()
   const markRead = useMarkNotificationReadMutation()
   const dismiss = useDismissNotificationMutation()
+
+  useFocusEffect(
+    useCallback(() => {
+      void refetch()
+    }, [refetch]),
+  )
 
   return (
     <ScreenWrapper scroll tabInset>
@@ -44,6 +60,21 @@ export default function NotificationsScreen() {
 
       {isLoading ? (
         <ActivityIndicator className="mt-12" color={brand.primaryDark} />
+      ) : isError ? (
+        <View className="mt-12 gap-3">
+          <Text className={`${theme.text} text-center font-semibold`}>
+            Could not load notifications
+          </Text>
+          <Text className={`${theme.textMuted} text-center leading-5`}>
+            {error instanceof Error ? error.message : 'Please try again.'}
+          </Text>
+          <Button
+            title={isFetching ? 'Retrying...' : 'Retry'}
+            variant="outline"
+            onPress={() => void refetch()}
+            disabled={isFetching}
+          />
+        </View>
       ) : !notifications?.length ? (
         <Text className={`${theme.textMuted} text-center mt-12`}>
           No notifications yet. Create a trip to receive reminders.

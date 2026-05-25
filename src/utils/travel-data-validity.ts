@@ -5,7 +5,15 @@ const PLACEHOLDER_HOTEL = /^hotel\s*\d+$/i
 /** Legacy placeholder rows before OSM-backed caching (e.g. "Hotel 1"). */
 export function isStaleHotelRow(row: TripHotelRow): boolean {
   if (PLACEHOLDER_HOTEL.test(row.name.trim())) return true
-  if (!/^(node|way)\//.test(row.external_id ?? '')) return true
+  if (!/^(node|way|relation|nominatim)\//.test(row.external_id ?? '')) return true
+  const source = row.raw?.source
+  if (
+    typeof source === 'string' &&
+    source &&
+    !['osm', 'openstreetmap', 'nominatim-osm'].includes(source)
+  ) {
+    return true
+  }
   return false
 }
 

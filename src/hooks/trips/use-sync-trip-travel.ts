@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { useRoutePolicy } from '@/hooks/trips/use-route-policy'
@@ -20,34 +20,47 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
   const { data: routePolicy } = useRoutePolicy(trip)
   const hotelsAttempted = useRef(false)
   const flightsAttempted = useRef(false)
+  const [hotelsSyncing, setHotelsSyncing] = useState(false)
+  const [hotelsSyncError, setHotelsSyncError] = useState<string | null>(null)
 
   const includeFlights = routePolicy?.includeFlights ?? true
 
   useEffect(() => {
     hotelsAttempted.current = false
     flightsAttempted.current = false
-  }, [tripId])
+  }, [tripId, trip?.destination, trip?.destination_lat, trip?.destination_lon])
 
   useEffect(() => {
-    if (!trip?.id || !trip.start_date || !trip.end_date) return
+    if (!trip?.id) return
     const needsHotels = !hotels?.length || hasOnlyStaleHotels(hotels)
     if (hotelsLoading || !needsHotels || hotelsAttempted.current) return
     hotelsAttempted.current = true
+    setHotelsSyncing(true)
+    setHotelsSyncError(null)
 
     void searchAndCacheHotels({
       tripId: trip.id,
       destination: trip.destination,
-      startDate: trip.start_date,
-      endDate: trip.end_date,
+      startDate: trip.start_date ?? undefined,
+      endDate: trip.end_date ?? undefined,
       budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
       destinationLat: trip.destination_lat,
       destinationLon: trip.destination_lon,
     })
-      .then(() => {
+      .then((result) => {
+        if (result.error && !result.hotels?.length) {
+          setHotelsSyncError(result.error)
+        }
         void queryClient.invalidateQueries({ queryKey: tripKeys.hotels(trip.id) })
+        void queryClient.invalidateQueries({ queryKey: tripKeys.detail(trip.id) })
+        void queryClient.invalidateQueries({ queryKey: tripKeys.all })
       })
-      .catch(() => {
+      .catch((error) => {
+        setHotelsSyncError(error instanceof Error ? error.message : 'Hotel search failed')
         hotelsAttempted.current = false
+      })
+      .finally(() => {
+        setHotelsSyncing(false)
       })
   }, [
     trip?.id,
@@ -55,6 +68,8 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
     trip?.start_date,
     trip?.end_date,
     trip?.budget_usd,
+    trip?.destination_lat,
+    trip?.destination_lon,
     hotelsLoading,
     hotels?.length,
     queryClient,
@@ -93,4 +108,6 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
     routePolicy,
     queryClient,
   ])
+
+  return { hotelsSyncing, hotelsSyncError }
 }

@@ -46,6 +46,7 @@ export default function RootLayout() {
       <NavigationThemeProvider>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
           <Stack.Screen name="index" />
+          <Stack.Screen name="auth/callback" />
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="trip/wizard" options={{ presentation: 'modal' }} />

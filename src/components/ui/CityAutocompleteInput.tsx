@@ -43,6 +43,8 @@ export function CityAutocompleteInput({
 }: Props) {
   const theme = useThemedStyles()
   const [focused, setFocused] = useState(false)
+  const [dismissedValue, setDismissedValue] = useState<string | null>(null)
+  const inputRef = useRef<TextInput>(null)
   const selectingRef = useRef(false)
 
   const { data: suggestions = [], isFetching, isFetched } = useCitySuggestions(
@@ -51,12 +53,29 @@ export function CityAutocompleteInput({
   )
 
   const showDropdown =
-    focused && value.trim().length >= 2 && (isFetching || suggestions.length > 0)
+    focused &&
+    value !== dismissedValue &&
+    value.trim().length >= 2 &&
+    (isFetching || suggestions.length > 0)
+
+  const handleChangeText = (text: string) => {
+    if (dismissedValue !== null && text !== dismissedValue) {
+      setDismissedValue(null)
+    }
+    onChangeText(text)
+  }
 
   const handleSelect = (selected: string) => {
+    selectingRef.current = true
+    setDismissedValue(selected)
     onChangeText(selected)
-    selectingRef.current = false
-    setFocused(false)
+    setFocused(true)
+    setTimeout(() => {
+      inputRef.current?.focus()
+    }, 0)
+    setTimeout(() => {
+      selectingRef.current = false
+    }, 250)
   }
 
   const itemRowStyle = {
@@ -76,7 +95,7 @@ export function CityAutocompleteInput({
   }
 
   return (
-    <View style={{ width: '100%', marginBottom: 18, zIndex: showDropdown ? listZIndex : 0 }}>
+    <View style={{ width: '100%', marginBottom: 18, zIndex: focused ? listZIndex : 0 }}>
       {label ? (
         <Text
           style={{
@@ -93,10 +112,11 @@ export function CityAutocompleteInput({
       ) : null}
       <View style={{ position: 'relative', width: '100%' }}>
         <TextInput
+          ref={inputRef}
           placeholder={placeholder}
           placeholderTextColor={theme.colors.textMuted}
           value={value}
-          onChangeText={onChangeText}
+          onChangeText={handleChangeText}
           autoCorrect={false}
           autoCapitalize="words"
           onFocus={(e) => {
@@ -105,7 +125,12 @@ export function CityAutocompleteInput({
           }}
           onBlur={(e) => {
             setTimeout(() => {
-              if (!selectingRef.current) setFocused(false)
+              if (selectingRef.current) {
+                inputRef.current?.focus()
+                setFocused(true)
+                return
+              }
+              setFocused(false)
             }, 160)
             onBlur?.(e)
           }}

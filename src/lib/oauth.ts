@@ -1,54 +1,53 @@
-import * as Linking from 'expo-linking'
 import * as WebBrowser from 'expo-web-browser'
 import { Platform } from 'react-native'
+import type { Session } from '@supabase/supabase-js'
 
-import { formatAuthError, type AuthResult } from '@/services/auth/auth-api'
+import { parseAuthParamsFromUrl } from '@/lib/auth-deep-link'
+import { getAuthRedirectUrl } from '@/lib/auth-redirect'
 import { getSupabaseOrNull } from '@/lib/supabase'
+import { formatAuthError, type AuthResult } from '@/services/auth/auth-api'
 
 WebBrowser.maybeCompleteAuthSession()
 
-function getParamsFromUrl(url: string): Record<string, string> {
-  const params: Record<string, string> = {}
-  const hashPart = url.includes('#') ? url.split('#')[1] : ''
-  const queryPart = url.includes('?') ? url.split('?').slice(1).join('?') : ''
-  const combined = hashPart || queryPart
-  if (!combined) return params
-
-  for (const segment of combined.split('&')) {
-    const [key, value] = segment.split('=')
-    if (key && value) {
-      params[decodeURIComponent(key)] = decodeURIComponent(value)
-    }
-  }
-  return params
+export type AuthUrlResult = AuthResult & {
+  session: Session | null
 }
 
-export async function finishOAuthFromUrl(url: string): Promise<AuthResult> {
+export async function finishOAuthFromUrl(url: string): Promise<AuthUrlResult> {
   const supabase = getSupabaseOrNull()
   if (!supabase) {
-    return { error: 'Supabase is not configured. Check your .env file.' }
+    return { error: 'Supabase is not configured. Check your .env file.', session: null }
   }
 
-  const params = getParamsFromUrl(url)
+  const params = parseAuthParamsFromUrl(url)
   const access_token = params.access_token
   const refresh_token = params.refresh_token
 
   if (access_token && refresh_token) {
-    const { error } = await supabase.auth.setSession({ access_token, refresh_token })
-    return { error: error ? formatAuthError(error) : null }
+    const { data, error } = await supabase.auth.setSession({ access_token, refresh_token })
+    return {
+      error: error ? formatAuthError(error) : null,
+      session: data.session ?? null,
+    }
   }
 
   const code = params.code
   if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-    return { error: error ? formatAuthError(error) : null }
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+    return {
+      error: error ? formatAuthError(error) : null,
+      session: data.session ?? null,
+    }
   }
 
   if (params.error_description || params.error) {
-    return { error: params.error_description ?? params.error ?? 'Sign in failed' }
+    return {
+      error: params.error_description ?? params.error ?? 'Sign in failed',
+      session: null,
+    }
   }
 
-  return { error: 'Sign in was cancelled or incomplete' }
+  return { error: 'Sign in was cancelled or incomplete', session: null }
 }
 
 export async function signInWithOAuth(
@@ -59,7 +58,7 @@ export async function signInWithOAuth(
     return { error: 'Supabase is not configured. Check your .env file.' }
   }
 
-  const redirectTo = Linking.createURL('/')
+  const redirectTo = getAuthRedirectUrl()
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
@@ -84,7 +83,8 @@ export async function signInWithOAuth(
   })
 
   if (result.type === 'success' && result.url) {
-    return finishOAuthFromUrl(result.url)
+    const auth = await finishOAuthFromUrl(result.url)
+    return { error: auth.error }
   }
 
   if (result.type === 'cancel' || result.type === 'dismiss') {

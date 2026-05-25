@@ -1,4 +1,5 @@
 import { env } from '@/lib/env';
+import { isValidCoordinate } from '@/lib/map-coordinates';
 
 export type LatLng = { latitude: number; longitude: number };
 
@@ -22,19 +23,51 @@ type OsrmGeoJsonResponse = {
 export async function fetchDrivingRoute(
   waypoints: LatLng[],
 ): Promise<RouteResult | null> {
-  if (waypoints.length < 2) return null;
+  const validWaypoints = waypoints.filter((point) =>
+    isValidCoordinate(point.latitude, point.longitude),
+  );
+  if (validWaypoints.length < 2) {
+    console.debug('[OSRM] route skipped', {
+      reason: 'fewer than two valid coordinates',
+      waypoints,
+    });
+    return null;
+  }
 
-  const coords = waypoints
+  const coords = validWaypoints
     .map((p) => `${p.longitude},${p.latitude}`)
     .join(';');
   const url = `${env.osrmBaseUrl}/route/v1/driving/${coords}?overview=full&geometries=geojson`;
 
   const res = await fetch(url);
+  const responseText = await res.text();
+  console.debug('[OSRM] response', {
+    url,
+    status: res.status,
+    ok: res.ok,
+    body: responseText.slice(0, 600),
+  });
   if (!res.ok) return null;
 
-  const data = (await res.json()) as OsrmGeoJsonResponse;
+  const data = JSON.parse(responseText) as OsrmGeoJsonResponse;
+  if (data.code && data.code !== 'Ok') {
+    console.warn('[OSRM] non-OK route response', data);
+    return null;
+  }
   const route = data.routes?.[0];
-  if (!route) return null;
+  if (!route) {
+    console.warn('[OSRM] no route in response', data);
+    return null;
+  }
+  if (route.distance < 1 || route.geometry.coordinates.length < 2) {
+    console.warn('[OSRM] route rejected as empty', {
+      distanceMeters: route.distance,
+      durationSeconds: route.duration,
+      coordinateCount: route.geometry.coordinates.length,
+      validWaypoints,
+    });
+    return null;
+  }
 
   return {
     coordinates: route.geometry.coordinates.map(([longitude, latitude]) => ({
@@ -57,9 +90,4 @@ export function formatDuration(seconds: number): string {
 export function formatDistance(meters: number): string {
   if (meters < 1000) return `${Math.round(meters)} m`;
   return `${(meters / 1000).toFixed(1)} km`;
-}
-
-/** Open native maps app at a coordinate (no API key). */
-export function mapsNavigationUrl(latitude: number, longitude: number): string {
-  return `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=15/${latitude}/${longitude}`;
 }

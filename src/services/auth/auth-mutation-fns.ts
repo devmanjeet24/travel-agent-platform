@@ -1,3 +1,4 @@
+import { getAuthRedirectUrl } from '@/lib/auth-redirect';
 import { getSupabaseOrNull } from '@/lib/supabase';
 
 import { formatAuthError, type AuthResult } from './auth-api';
@@ -26,7 +27,10 @@ export async function signUpWithEmail(
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: fullName ? { data: { full_name: fullName } } : undefined,
+    options: {
+      emailRedirectTo: getAuthRedirectUrl(),
+      ...(fullName ? { data: { full_name: fullName } } : undefined),
+    },
   });
   if (error) {
     return { error: formatAuthError(error) };
@@ -49,7 +53,9 @@ export async function resetPassword(email: string): Promise<AuthResult> {
   if (!supabase) {
     return { error: 'Supabase is not configured. Check your .env file.' };
   }
-  const { error } = await supabase.auth.resetPasswordForEmail(email);
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: getAuthRedirectUrl(),
+  });
   return { error: error?.message ?? null };
 }
 

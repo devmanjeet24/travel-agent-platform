@@ -6,21 +6,47 @@ export function itineraryToAttractions(
   days: Array<ItineraryDayRow & { activities: ItineraryActivityRow[] }>,
 ): TripAttraction[] {
   const attractions: TripAttraction[] = [];
+  const skipped: Array<{ id: string; name: string; latitude: unknown; longitude: unknown }> = [];
   for (const day of days) {
     for (const act of day.activities) {
       if (act.latitude != null && act.longitude != null) {
         const latitude = Number(act.latitude);
         const longitude = Number(act.longitude);
-        if (!isValidCoordinate(latitude, longitude)) continue;
+        if (!isValidCoordinate(latitude, longitude)) {
+          skipped.push({
+            id: act.id,
+            name: act.name,
+            latitude: act.latitude,
+            longitude: act.longitude,
+          });
+          continue;
+        }
         attractions.push({
           id: act.id,
           title: act.name,
           subtitle: `Day ${day.day_number} · ${act.activity_time ?? ''}`,
           coordinate: { latitude, longitude },
         });
+      } else {
+        skipped.push({
+          id: act.id,
+          name: act.name,
+          latitude: act.latitude,
+          longitude: act.longitude,
+        });
       }
     }
   }
+  console.debug('[itineraryToAttractions] result', {
+    dayCount: days.length,
+    attractionCount: attractions.length,
+    skipped,
+    coordinates: attractions.map((attraction) => ({
+      title: attraction.title,
+      latitude: attraction.coordinate.latitude,
+      longitude: attraction.coordinate.longitude,
+    })),
+  });
   return attractions;
 }
 

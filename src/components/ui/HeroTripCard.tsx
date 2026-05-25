@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import { Image, Pressable, Text, View } from 'react-native'
 import { ArrowUpRight, Calendar } from 'lucide-react-native'
 
-import { brand } from '@/constants/design'
+import { brand, defaultTripImage } from '@/constants/design'
 import { useResponsive } from '@/hooks/use-responsive'
 import { cardShadow, radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
@@ -18,6 +19,8 @@ export function HeroTripCard({ imageUri, eyebrow, title, dates, onPress }: Props
   const { isDark } = useThemedStyles()
   const { width, scaleFont, isSmallPhone } = useResponsive()
   const heroHeight = Math.min(Math.max(width * 0.48, 180), 280)
+  const [failedImageUri, setFailedImageUri] = useState<string | null>(null)
+  const imageSource = failedImageUri === imageUri ? defaultTripImage : imageUri
 
   return (
     <Pressable
@@ -33,7 +36,14 @@ export function HeroTripCard({ imageUri, eyebrow, title, dates, onPress }: Props
         cardShadow(isDark),
       ]}
     >
-      <Image source={{ uri: imageUri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+      <Image
+        source={{ uri: imageSource }}
+        style={{ width: '100%', height: '100%' }}
+        resizeMode="cover"
+        onError={() => {
+          if (imageSource !== defaultTripImage) setFailedImageUri(imageUri)
+        }}
+      />
       <View
         style={{
           position: 'absolute',

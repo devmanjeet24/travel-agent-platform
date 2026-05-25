@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, View } from 'react-native';
 
 import { brand } from '@/constants/design';
@@ -6,7 +6,7 @@ import { radii } from '@/lib/ui-styles';
 import { useThemedStyles } from '@/hooks/use-themed-styles';
 
 function Dot({ delay }: { delay: number }) {
-  const opacity = useRef(new Animated.Value(0.35)).current;
+  const [opacity] = useState(() => new Animated.Value(0.35));
 
   useEffect(() => {
     const anim = Animated.loop(

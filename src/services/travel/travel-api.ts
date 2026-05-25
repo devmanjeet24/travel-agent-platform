@@ -1,4 +1,5 @@
 import { edgeFunctionUrl, getEdgeAuthHeaders } from '@/lib/edge-fetch';
+import { isValidCoordinate } from '@/lib/map-coordinates';
 import { uploadChatAttachmentFile } from '@/lib/storage-upload';
 import { transcribeFromUri } from '@/lib/voice-recording';
 import type { WeatherResult } from '@/types/database';
@@ -10,31 +11,107 @@ export type CitySuggestion = {
   value: string;
 };
 
-export async function invokeTravelSearch(body: Record<string, unknown>) {
+export type DestinationSyncResult = {
+  geo?: {
+    name: string;
+    country: string;
+    lat: number;
+    lon: number;
+    displayName: string;
+    imageUrl?: string | null;
+  };
+  updated?: boolean;
+};
+
+const TRAVEL_SEARCH_TIMEOUT_MS = 45_000;
+const PLAN_TRIP_TIMEOUT_MS = 120_000;
+
+function getEdgeErrorMessage(data: unknown, fallback: string): string {
+  if (data && typeof data === 'object') {
+    const error = 'error' in data ? (data as { error?: unknown }).error : undefined;
+    if (typeof error === 'string' && error.trim()) return error;
+    const message = 'message' in data ? (data as { message?: unknown }).message : undefined;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return fallback;
+}
+
+async function parseEdgeResponse(res: Response): Promise<unknown> {
+  const text = await res.text().catch(() => '');
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { message: text.slice(0, 240) };
+  }
+}
+
+async function postEdgeFunction(
+  name: string,
+  body: Record<string, unknown>,
+  options: {
+    timeoutMs: number;
+    fallbackError: string;
+    notFoundError: string;
+    timeoutError: string;
+  },
+) {
   const headers = await getEdgeAuthHeaders();
   if (!headers) throw new Error('Sign in required');
 
-  const res = await fetch(edgeFunctionUrl('travel-search'), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(edgeFunctionUrl(name), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error(options.timeoutError);
+    }
+    throw new Error(`Network error while contacting ${name}. Check your connection and try again.`);
+  } finally {
+    clearTimeout(timeout);
+  }
 
-  const data = await res.json();
+  const data = await parseEdgeResponse(res);
   if (!res.ok) {
     if (res.status === 404) {
-      throw new Error(
-        'travel-search function not deployed. Run: supabase functions deploy travel-search',
-      );
+      throw new Error(options.notFoundError);
     }
-    throw new Error((data as { error?: string }).error ?? 'Travel search failed');
+    throw new Error(getEdgeErrorMessage(data, options.fallbackError));
   }
   return data;
+}
+
+export async function invokeTravelSearch(body: Record<string, unknown>) {
+  return postEdgeFunction('travel-search', body, {
+    timeoutMs: TRAVEL_SEARCH_TIMEOUT_MS,
+    fallbackError: 'Travel search failed',
+    notFoundError: 'travel-search function not deployed. Run: supabase functions deploy travel-search',
+    timeoutError: 'Travel search timed out. Please try again.',
+  });
 }
 
 export async function searchCitySuggestions(query: string): Promise<CitySuggestion[]> {
   const data = await invokeTravelSearch({ action: 'cities', query });
   return (data as { suggestions?: CitySuggestion[] }).suggestions ?? [];
+}
+
+export async function syncTripDestination(params: {
+  tripId: string;
+  destination: string;
+}): Promise<DestinationSyncResult> {
+  const data = await invokeTravelSearch({
+    action: 'geocode',
+    tripId: params.tripId,
+    destination: params.destination,
+  });
+  return data as DestinationSyncResult;
 }
 
 export async function fetchWeatherForDestination(
@@ -44,26 +121,45 @@ export async function fetchWeatherForDestination(
   return (data as { weather?: WeatherResult }).weather ?? null;
 }
 
+export type SearchHotelsResult = {
+  hotels?: unknown[];
+  error?: string | null;
+  source?: string;
+  geocodedAs?: string;
+};
+
 export async function searchAndCacheHotels(params: {
   tripId: string;
   destination: string;
-  startDate: string;
-  endDate: string;
+  startDate?: string;
+  endDate?: string;
   budgetInr?: number;
   destinationLat?: number | null;
   destinationLon?: number | null;
-}) {
+}): Promise<SearchHotelsResult> {
+  const hasValidDestinationCoordinate =
+    params.destinationLat != null &&
+    params.destinationLon != null &&
+    isValidCoordinate(params.destinationLat, params.destinationLon);
+  if (params.destinationLat != null || params.destinationLon != null) {
+    console.debug('[travel-api] hotel search destination coordinates', {
+      destination: params.destination,
+      destinationLat: params.destinationLat,
+      destinationLon: params.destinationLon,
+      accepted: hasValidDestinationCoordinate,
+    });
+  }
   return invokeTravelSearch({
     action: 'hotels',
     tripId: params.tripId,
     destination: params.destination,
-    startDate: params.startDate,
-    endDate: params.endDate,
+    ...(params.startDate ? { startDate: params.startDate } : {}),
+    ...(params.endDate ? { endDate: params.endDate } : {}),
     budgetInr: params.budgetInr,
-    ...(params.destinationLat != null && params.destinationLon != null
+    ...(hasValidDestinationCoordinate
       ? { lat: params.destinationLat, lon: params.destinationLon }
       : {}),
-  });
+  }) as Promise<SearchHotelsResult>;
 }
 
 export type RoutePolicy = {
@@ -115,26 +211,24 @@ export async function searchAndCacheFlights(params: {
   });
 }
 
-export async function planTrip(tripId: string) {
-  const headers = await getEdgeAuthHeaders();
-  if (!headers) throw new Error('Sign in required');
-
-  const res = await fetch(edgeFunctionUrl('plan-trip'), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ tripId }),
+export async function geocodeTripItinerary(tripId: string): Promise<{
+  attempted?: number;
+  updated?: number;
+}> {
+  const data = await invokeTravelSearch({
+    action: 'geocode-itinerary',
+    tripId,
   });
+  return data as { attempted?: number; updated?: number };
+}
 
-  const data = await res.json();
-  if (!res.ok) {
-    if (res.status === 404) {
-      throw new Error(
-        'plan-trip function not deployed. Run: supabase functions deploy plan-trip',
-      );
-    }
-    throw new Error((data as { error?: string }).error ?? 'Plan trip failed');
-  }
-  return data;
+export async function planTrip(tripId: string) {
+  return postEdgeFunction('plan-trip', { tripId }, {
+    timeoutMs: PLAN_TRIP_TIMEOUT_MS,
+    fallbackError: 'Plan trip failed',
+    notFoundError: 'plan-trip function not deployed. Run: supabase functions deploy plan-trip',
+    timeoutError: 'Trip planning timed out. Please try again.',
+  });
 }
 
 export async function transcribeAudio(uri: string): Promise<string> {

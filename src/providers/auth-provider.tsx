@@ -5,13 +5,14 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
+import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Session, User } from '@supabase/supabase-js';
 
 import { useAuthSessionQuery } from '@/hooks/auth/use-auth-session-query';
+import { collectAuthCallbackUrls, processAuthCallbackUrl } from '@/lib/auth-deep-link';
 import { isSupabaseConfigured } from '@/lib/env';
-import { finishOAuthFromUrl } from '@/lib/oauth';
 import { getSupabaseOrNull } from '@/lib/supabase';
 import { authKeys, getUserDisplayName } from '@/services/auth';
 
@@ -35,15 +36,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = getSupabaseOrNull();
     if (!supabase) return;
 
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const href = window.location.href;
-      if (href.includes('access_token=') || href.includes('code=')) {
-        void finishOAuthFromUrl(href).then(() => {
-          window.history.replaceState({}, document.title, '/');
-          void queryClient.invalidateQueries({ queryKey: authKeys.session() });
-        });
+    const handleUrls = async (urls: string[]) => {
+      for (const url of urls) {
+        const { session: nextSession } = await processAuthCallbackUrl(url, queryClient);
+        if (nextSession) break;
       }
+    };
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      void handleUrls([window.location.href]);
+    } else {
+      void collectAuthCallbackUrls(null).then(handleUrls);
     }
+
+    const linkSub =
+      Platform.OS !== 'web'
+        ? Linking.addEventListener('url', ({ url }) => {
+            void processAuthCallbackUrl(url, queryClient);
+          })
+        : null;
 
     const {
       data: { subscription },
@@ -51,13 +62,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryClient.setQueryData(authKeys.session(), nextSession);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      linkSub?.remove();
+      subscription.unsubscribe();
+    };
   }, [isConfigured, queryClient]);
 
   const session = sessionQuery.data ?? null;
-  // Only block UI on the first session fetch (no cached data yet).
-  // isPending stays true during background refetches and would remount auth screens.
-  const loading = isConfigured && sessionQuery.isLoading;
+  const loading =
+    isConfigured &&
+    (sessionQuery.isLoading || (sessionQuery.isFetching && sessionQuery.data === undefined));
   const user = session?.user ?? null;
   const displayName = useMemo(() => getUserDisplayName(user), [user]);
 

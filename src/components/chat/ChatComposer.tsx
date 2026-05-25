@@ -6,7 +6,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Image as ImageIcon, Mic, Paperclip, Send, Square, Volume2 } from 'lucide-react-native';
+import { Mic, Paperclip, Send, Square, Volume2 } from 'lucide-react-native';
 
 import { brand } from '@/constants/design';
 import type { VoiceAssistantPhase } from '@/hooks/use-voice-assistant';
@@ -19,7 +19,6 @@ type Props = {
   onChangeText: (text: string) => void;
   onSend: () => void;
   onPickAttachment: () => void;
-  onPickImage: () => void;
   onToggleVoice: () => void;
   onStopVoice?: () => void;
   canSend: boolean;
@@ -48,7 +47,6 @@ export function ChatComposer({
   onChangeText,
   onSend,
   onPickAttachment,
-  onPickImage,
   onToggleVoice,
   onStopVoice,
   canSend,
@@ -124,9 +122,6 @@ export function ChatComposer({
       >
         <Pressable style={{ padding: isSmallPhone ? 8 : 10 }} onPress={onPickAttachment}>
           <Paperclip size={isSmallPhone ? 20 : 22} color={theme.colors.icon} />
-        </Pressable>
-        <Pressable style={{ padding: isSmallPhone ? 8 : 10 }} onPress={onPickImage}>
-          <ImageIcon size={isSmallPhone ? 20 : 22} color={brand.primaryDark} />
         </Pressable>
         <TextInput
           placeholder="Message your travel agent..."
