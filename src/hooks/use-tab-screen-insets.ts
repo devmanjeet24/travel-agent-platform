@@ -14,6 +14,8 @@ export function useTabScreenInsets() {
   let tabBarHeight = 0
 
   try {
+    // ScreenWrapper is also used outside tab navigators; keep the runtime fallback.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     tabBarHeight = useBottomTabBarHeight()
   } catch {
     tabBarHeight = Platform.OS === 'ios' ? 84 : 64

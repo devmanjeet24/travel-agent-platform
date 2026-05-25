@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Switch, Text, useColorScheme } from 'react-native'
 
 import { RequireSession } from '@/components/auth/require-session'
@@ -17,15 +17,11 @@ export default function SettingsScreen() {
   const systemScheme = useColorScheme()
   const { user } = useAuth()
   const { data: profile } = useProfileQuery()
-  const [notifications, setNotifications] = useState(true)
-  const [offlineMode, setOfflineMode] = useState(true)
-
-  useEffect(() => {
-    if (profile) {
-      setNotifications(profile.push_notifications_enabled)
-      setOfflineMode(profile.offline_sync_enabled)
-    }
-  }, [profile])
+  const [notificationsDraft, setNotificationsDraft] = useState<boolean | null>(null)
+  const [offlineModeDraft, setOfflineModeDraft] = useState<boolean | null>(null)
+  const notifications =
+    notificationsDraft ?? profile?.push_notifications_enabled ?? true
+  const offlineMode = offlineModeDraft ?? profile?.offline_sync_enabled ?? true
 
   const persist = async (
     patch: Partial<{
@@ -38,13 +34,13 @@ export default function SettingsScreen() {
   }
 
   const onNotificationsChange = async (value: boolean) => {
-    setNotifications(value)
+    setNotificationsDraft(value)
     await persist({ push_notifications_enabled: value })
     if (value) await registerForPushNotifications()
   }
 
   const onOfflineChange = async (value: boolean) => {
-    setOfflineMode(value)
+    setOfflineModeDraft(value)
     await persist({ offline_sync_enabled: value })
   }
 

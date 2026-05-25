@@ -30,6 +30,7 @@ import { useThemedStyles } from '@/hooks/use-themed-styles';
 
 type Props = {
   attractions?: TripAttraction[];
+  routeAttractions?: TripAttraction[];
   initialRegion?: MapRegion;
 };
 
@@ -51,6 +52,7 @@ const EMPTY_MAP_REGION: MapRegion = {
   latitudeDelta: 1,
   longitudeDelta: 1,
 };
+const EMPTY_ROUTE_COORDINATES: LatLng[] = [];
 
 function filterValidAttractions(attractions: TripAttraction[]): TripAttraction[] {
   return attractions.filter((a) =>
@@ -131,6 +133,7 @@ function projectToMap(
 
 export function TripMap({
   attractions = [],
+  routeAttractions,
   initialRegion = EMPTY_MAP_REGION,
 }: Props) {
   const theme = useThemedStyles();
@@ -142,17 +145,24 @@ export function TripMap({
     () => filterValidAttractions(attractions),
     [attractions],
   );
+  const validRouteAttractions = useMemo(
+    () => filterValidAttractions(routeAttractions ?? attractions),
+    [attractions, routeAttractions],
+  );
 
   const [routeMeta, setRouteMeta] = useState<{
     distance: string;
     duration: string;
   } | null>(null);
+  const [routeResultKey, setRouteResultKey] = useState('');
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState<LatLng[]>([]);
   const [routeNotice, setRouteNotice] = useState<string | null>(null);
-  const [previewFailed, setPreviewFailed] = useState(false);
   const [mapSize, setMapSize] = useState<MapSize | null>(null);
-  const [, setFailedTileUrls] = useState<Set<string>>(() => new Set());
+  const [failedTileUrls, setFailedTileUrls] = useState<{
+    key: string;
+    urls: Set<string>;
+  }>(() => ({ key: '', urls: new Set() }));
 
   const center = useMemo(
     () => ({
@@ -179,19 +189,29 @@ export function TripMap({
   );
   const routeKey = useMemo(
     () =>
-      waypointKey(dedupeRouteWaypoints(validAttractions.map((a) => a.coordinate))),
-    [validAttractions],
+      waypointKey(dedupeRouteWaypoints(validRouteAttractions.map((a) => a.coordinate))),
+    [validRouteAttractions],
   );
   const routeWaypoints = useMemo(() => waypointsFromKey(routeKey), [routeKey]);
+  const currentRouteCoordinates =
+    routeResultKey === routeKey ? routeCoordinates : EMPTY_ROUTE_COORDINATES;
+  const currentRouteMeta = routeResultKey === routeKey ? routeMeta : null;
+  const currentRouteNotice = routeResultKey === routeKey ? routeNotice : null;
   const displayRouteCoordinates = useMemo(
     () =>
-      routeCoordinates.length >= 2
-        ? routeCoordinates
-        : routeWaypoints.length >= 2
-          ? routeWaypoints
-          : [],
-    [routeCoordinates, routeWaypoints],
+      routeWaypoints.length < 2
+        ? []
+        : currentRouteCoordinates.length >= 2
+        ? currentRouteCoordinates
+        : routeWaypoints,
+    [currentRouteCoordinates, routeWaypoints],
   );
+  const visibleRouteMeta = routeWaypoints.length >= 2 ? currentRouteMeta : null;
+  const visibleRouteNotice =
+    routeWaypoints.length >= 2
+      ? currentRouteNotice
+      : 'Add at least two geocoded itinerary stops to show a route.';
+  const visibleLoadingRoute = routeWaypoints.length >= 2 && loadingRoute;
 
   const mapTiles = useMemo(
     () =>
@@ -209,6 +229,11 @@ export function TripMap({
     ],
   );
   const mapTileUrls = useMemo(() => mapTiles.map((tile) => tile.url), [mapTiles]);
+  const tileSetKey = useMemo(() => mapTileUrls.join('|'), [mapTileUrls]);
+  const previewFailed =
+    mapTileUrls.length > 0 &&
+    failedTileUrls.key === tileSetKey &&
+    failedTileUrls.urls.size >= mapTileUrls.length;
 
   const routePolyline = useMemo(() => {
     if (!mapSize || displayRouteCoordinates.length < 2) return '';
@@ -248,17 +273,21 @@ export function TripMap({
         latitude: attraction.coordinate.latitude,
         longitude: attraction.coordinate.longitude,
       })),
+      routeAttractions: validRouteAttractions.map((attraction) => ({
+        id: attraction.id,
+        title: attraction.title,
+        latitude: attraction.coordinate.latitude,
+        longitude: attraction.coordinate.longitude,
+      })),
       routeWaypoints,
     });
-  }, [region, routeWaypoints, validAttractions, zoom]);
+  }, [region, routeWaypoints, validAttractions, validRouteAttractions, zoom]);
 
   useEffect(() => {
     console.debug('[TripMap] OSM tile image URLs', {
       count: mapTileUrls.length,
       urls: mapTileUrls.slice(0, 6),
     });
-    setPreviewFailed(false);
-    setFailedTileUrls(new Set());
   }, [mapTileUrls]);
 
   useEffect(() => {
@@ -283,8 +312,9 @@ export function TripMap({
   const handleTileError = useCallback(
     (url: string) => {
       setFailedTileUrls((current) => {
-        if (current.has(url)) return current;
-        const next = new Set(current);
+        const currentUrls = current.key === tileSetKey ? current.urls : new Set<string>();
+        if (currentUrls.has(url)) return current;
+        const next = new Set(currentUrls);
         next.add(url);
         console.warn('[TripMap] OSM tile image failed', {
           url,
@@ -296,12 +326,11 @@ export function TripMap({
             reason: 'all OSM tile images failed',
             failedUrls: Array.from(next),
           });
-          setPreviewFailed(true);
         }
-        return next;
+        return { key: tileSetKey, urls: next };
       });
     },
-    [mapTileUrls],
+    [mapTileUrls, tileSetKey],
   );
 
   useEffect(() => {
@@ -310,16 +339,12 @@ export function TripMap({
         reason: 'fewer than two distinct valid waypoints',
         routeWaypoints,
       });
-      setRouteMeta(null);
-      setRouteCoordinates([]);
-      setRouteNotice('Add at least two geocoded stops to show a route.');
-      setLoadingRoute(false);
       return;
     }
 
     let cancelled = false;
 
-    (async () => {
+    void Promise.resolve().then(async () => {
       setLoadingRoute(true);
       setRouteNotice(null);
       try {
@@ -337,11 +362,13 @@ export function TripMap({
             duration: formatDuration(route.durationSeconds),
           });
           setRouteCoordinates(route.coordinates);
+          setRouteResultKey(routeKey);
           setRouteNotice(null);
         } else {
           console.warn('[TripMap] OSRM route unavailable', { routeWaypoints });
           setRouteMeta(null);
           setRouteCoordinates(routeWaypoints);
+          setRouteResultKey(routeKey);
           setRouteNotice('Driving route unavailable; showing a direct line between stops.');
         }
       } catch (error) {
@@ -352,6 +379,7 @@ export function TripMap({
           });
           setRouteMeta(null);
           setRouteCoordinates(routeWaypoints);
+          setRouteResultKey(routeKey);
           setRouteNotice('Driving route unavailable; showing a direct line between stops.');
         }
       } finally {
@@ -359,12 +387,12 @@ export function TripMap({
           setLoadingRoute(false);
         }
       }
-    })();
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [routeWaypoints]);
+  }, [routeKey, routeWaypoints]);
 
   if (!validAttractions.length) {
     return (
@@ -427,7 +455,13 @@ export function TripMap({
         )}
 
         {routePolyline ? (
-          <Svg pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <Svg
+            pointerEvents="none"
+            style={StyleSheet.absoluteFill}
+            width={mapSize?.width ?? '100%'}
+            height={mapSize?.height ?? '100%'}
+            viewBox={`0 0 ${mapSize?.width ?? 1} ${mapSize?.height ?? 1}`}
+          >
             <Polyline
               points={routePolyline}
               fill="none"
@@ -475,22 +509,22 @@ export function TripMap({
           </Text>
         </View>
 
-        {loadingRoute ? (
+        {visibleLoadingRoute ? (
           <View className="absolute inset-0 items-center justify-center bg-black/20">
             <ActivityIndicator color="#fff" />
           </View>
         ) : null}
       </View>
 
-      {routeMeta ? (
+      {visibleRouteMeta ? (
         <Text className={`${theme.textMuted} text-sm mb-2 px-1`}>
-          Route: {routeMeta.distance} · ~{routeMeta.duration} driving (OSRM)
+          Route: {visibleRouteMeta.distance} · ~{visibleRouteMeta.duration} driving (OSRM)
         </Text>
       ) : null}
 
-      {routeNotice ? (
+      {visibleRouteNotice ? (
         <Text className={`${theme.textMuted} text-sm mb-2 px-1`}>
-          {routeNotice}
+          {visibleRouteNotice}
         </Text>
       ) : null}
 

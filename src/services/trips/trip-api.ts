@@ -8,6 +8,7 @@ import type {
   TripHotelRow,
   TripRow,
 } from '@/types/database';
+import { isStaleHotelRow } from '@/utils/travel-data-validity';
 
 export type CreateTripInput = {
   title: string;
@@ -213,7 +214,7 @@ export async function fetchTripHotels(tripId: string): Promise<TripHotelRow[]> {
     .order('created_at');
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as TripHotelRow[];
+  return ((data ?? []) as TripHotelRow[]).filter((hotel) => !isStaleHotelRow(hotel));
 }
 
 export async function fetchTripFlights(tripId: string): Promise<TripFlightRow[]> {

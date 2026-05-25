@@ -15,6 +15,7 @@ import {
   fetchWeather,
   geocodeDestination,
   geocodeNearDestination,
+  isPlaceholderTripImageUrl,
 } from '../_shared/travel-apis.ts';
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -401,7 +402,10 @@ ${travelContext}`;
           timezone: weather.timezone,
         };
       }
-      const tripImageUrl = geo.imageUrl ?? trip.image_url ?? null;
+      const existingTripImageUrl = isPlaceholderTripImageUrl(trip.image_url)
+        ? null
+        : trip.image_url;
+      const tripImageUrl = geo.imageUrl ?? existingTripImageUrl ?? null;
       tripPatch.destination_lat = geo.lat;
       tripPatch.destination_lon = geo.lon;
       tripPatch.country = geo.country;

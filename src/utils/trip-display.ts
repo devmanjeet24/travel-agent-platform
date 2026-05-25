@@ -2,6 +2,15 @@ import { defaultTripImage, featuredDestinations } from '@/constants/design'
 import { formatTripDates } from '@/services/trips/trip-api'
 import type { TripRow } from '@/types/database'
 
+const PLACEHOLDER_IMAGE_HOSTS = [
+  'loremflickr.com',
+  'picsum.photos',
+  'placehold.co',
+  'via.placeholder.com',
+  'source.unsplash.com',
+]
+const PLACEHOLDER_UNSPLASH_PHOTO_IDS = ['photo-1488646953014-85cb44e25828']
+
 const destinationImageOverrides: Record<string, string> = {
   bali: featuredDestinations.find((d) => d.id === 'bali')?.image ?? defaultTripImage,
   indonesia: featuredDestinations.find((d) => d.id === 'bali')?.image ?? defaultTripImage,
@@ -55,22 +64,57 @@ function destinationCandidates(trip: Pick<TripRow, 'destination' | 'country'>) {
     .filter((value): value is string => Boolean(value))
 }
 
-function destinationSearchImage(candidate: string) {
-  const terms = [
-    ...candidate
-      .split(',')
-      .map((part) => part.trim())
-      .filter(Boolean),
-    'travel',
-    'landmark',
-  ]
-  const query = terms.map(encodeURIComponent).join(',')
-  return `https://loremflickr.com/1200/800/${query}`
+function safeParseUrl(value: string) {
+  try {
+    return new URL(value)
+  } catch {
+    return null
+  }
+}
+
+function isPlaceholderImageHost(hostname: string) {
+  return PLACEHOLDER_IMAGE_HOSTS.some(
+    (host) => hostname === host || hostname.endsWith(`.${host}`),
+  )
+}
+
+function isGenericUnsplashImage(value: string) {
+  const parsed = safeParseUrl(value)
+  if (!parsed) {
+    return PLACEHOLDER_UNSPLASH_PHOTO_IDS.some((id) => value.includes(id))
+  }
+  const hostname = parsed.hostname.toLowerCase()
+  if (hostname !== 'images.unsplash.com') return false
+  return PLACEHOLDER_UNSPLASH_PHOTO_IDS.some((id) => parsed.pathname.includes(id))
+}
+
+export function isPlaceholderTripImageUrl(url: string | null | undefined) {
+  const value = url?.trim()
+  if (!value) return true
+  if (value === defaultTripImage) return true
+  if (isGenericUnsplashImage(value)) return true
+  const parsed = safeParseUrl(value)
+  return parsed ? isPlaceholderImageHost(parsed.hostname.toLowerCase()) : false
+}
+
+export function needsTripDestinationSync(
+  trip: Pick<
+    TripRow,
+    'image_url' | 'destination' | 'destination_lat' | 'destination_lon' | 'country'
+  >,
+) {
+  return (
+    Boolean(trip.destination.trim()) &&
+    (isPlaceholderTripImageUrl(trip.image_url) ||
+      trip.destination_lat == null ||
+      trip.destination_lon == null ||
+      !trip.country)
+  )
 }
 
 export function tripImageUri(trip: Pick<TripRow, 'image_url' | 'destination' | 'country'>) {
   const stored = trip.image_url?.trim()
-  if (stored) return stored
+  if (stored && !isPlaceholderTripImageUrl(stored)) return stored
 
   const candidates = destinationCandidates(trip)
   for (const candidate of candidates) {
@@ -78,10 +122,7 @@ export function tripImageUri(trip: Pick<TripRow, 'image_url' | 'destination' | '
     if (override) return override
   }
 
-  const destination = candidates[0] ?? trip.destination.trim()
-  if (!destination) return defaultTripImage
-
-  return destinationSearchImage(destination)
+  return defaultTripImage
 }
 
 export function isGeneratedTripTitle(title: string, destination: string) {

@@ -11,6 +11,18 @@ export type CitySuggestion = {
   value: string;
 };
 
+export type DestinationSyncResult = {
+  geo?: {
+    name: string;
+    country: string;
+    lat: number;
+    lon: number;
+    displayName: string;
+    imageUrl?: string | null;
+  };
+  updated?: boolean;
+};
+
 const TRAVEL_SEARCH_TIMEOUT_MS = 45_000;
 const PLAN_TRIP_TIMEOUT_MS = 120_000;
 
@@ -88,6 +100,18 @@ export async function invokeTravelSearch(body: Record<string, unknown>) {
 export async function searchCitySuggestions(query: string): Promise<CitySuggestion[]> {
   const data = await invokeTravelSearch({ action: 'cities', query });
   return (data as { suggestions?: CitySuggestion[] }).suggestions ?? [];
+}
+
+export async function syncTripDestination(params: {
+  tripId: string;
+  destination: string;
+}): Promise<DestinationSyncResult> {
+  const data = await invokeTravelSearch({
+    action: 'geocode',
+    tripId: params.tripId,
+    destination: params.destination,
+  });
+  return data as DestinationSyncResult;
 }
 
 export async function fetchWeatherForDestination(
@@ -185,6 +209,17 @@ export async function searchAndCacheFlights(params: {
     departDate: params.departDate,
     budgetInr: params.budgetInr ?? params.budgetUsd,
   });
+}
+
+export async function geocodeTripItinerary(tripId: string): Promise<{
+  attempted?: number;
+  updated?: number;
+}> {
+  const data = await invokeTravelSearch({
+    action: 'geocode-itinerary',
+    tripId,
+  });
+  return data as { attempted?: number; updated?: number };
 }
 
 export async function planTrip(tripId: string) {

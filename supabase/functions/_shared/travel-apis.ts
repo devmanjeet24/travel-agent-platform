@@ -84,6 +84,104 @@ const OVERPASS_HEADERS = {
   'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge; educational)',
 };
 
+const PLACEHOLDER_IMAGE_HOSTS = [
+  'loremflickr.com',
+  'picsum.photos',
+  'placehold.co',
+  'via.placeholder.com',
+  'source.unsplash.com',
+] as const;
+const PLACEHOLDER_UNSPLASH_PHOTO_IDS = ['photo-1488646953014-85cb44e25828'] as const;
+
+const DESTINATION_IMAGE_OVERRIDES: Record<string, string> = {
+  bali: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1200&q=80',
+  indonesia: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1200&q=80',
+  paris: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1200&q=80',
+  france: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1200&q=80',
+  tokyo: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1200&q=80',
+  japan: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1200&q=80',
+  santorini: 'https://images.unsplash.com/photo-1613395877344-13f27c9eb15d?w=1200&q=80',
+  greece: 'https://images.unsplash.com/photo-1613395877344-13f27c9eb15d?w=1200&q=80',
+  china: 'https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=1200&q=80',
+  '中国': 'https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=1200&q=80',
+  beijing: 'https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=1200&q=80',
+  india: 'https://images.unsplash.com/photo-1564507592333-c60657eea523?w=1200&q=80',
+  delhi: 'https://images.unsplash.com/photo-1564507592333-c60657eea523?w=1200&q=80',
+  thailand: 'https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=1200&q=80',
+  bangkok: 'https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=1200&q=80',
+  australia: 'https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=1200&q=80',
+  sydney: 'https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=1200&q=80',
+  melbourne: 'https://images.unsplash.com/photo-1545044846-351ba102b6d5?w=1200&q=80',
+  'new zealand': 'https://images.unsplash.com/photo-1469521669194-babb45599def?w=1200&q=80',
+  auckland: 'https://images.unsplash.com/photo-1507699622108-4be3abd695ad?w=1200&q=80',
+  queenstown: 'https://images.unsplash.com/photo-1589871973318-9ca1258faa5d?w=1200&q=80',
+  dubai: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
+  london: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&q=80',
+  'new york': 'https://images.unsplash.com/photo-1485871981521-5b1fd3805eee?w=1200&q=80',
+  usa: 'https://images.unsplash.com/photo-1485871981521-5b1fd3805eee?w=1200&q=80',
+  'united states': 'https://images.unsplash.com/photo-1485871981521-5b1fd3805eee?w=1200&q=80',
+  italy: 'https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?w=1200&q=80',
+  rome: 'https://images.unsplash.com/photo-1529154036614-a60975f5c760?w=1200&q=80',
+  spain: 'https://images.unsplash.com/photo-1509840841025-9088ba78a826?w=1200&q=80',
+  barcelona: 'https://images.unsplash.com/photo-1583422409516-2895a77efded?w=1200&q=80',
+  singapore: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=1200&q=80',
+  nepal: 'https://images.unsplash.com/photo-1544735716-392fe2489ffa?w=1200&q=80',
+};
+
+function normalizeDestinationKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function safeParseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function isPlaceholderImageHost(hostname: string): boolean {
+  return PLACEHOLDER_IMAGE_HOSTS.some(
+    (host) => hostname === host || hostname.endsWith(`.${host}`),
+  );
+}
+
+function isGenericUnsplashImage(value: string): boolean {
+  const parsed = safeParseUrl(value);
+  if (!parsed) {
+    return PLACEHOLDER_UNSPLASH_PHOTO_IDS.some((id) => value.includes(id));
+  }
+  if (parsed.hostname.toLowerCase() !== 'images.unsplash.com') return false;
+  return PLACEHOLDER_UNSPLASH_PHOTO_IDS.some((id) => parsed.pathname.includes(id));
+}
+
+export function isPlaceholderTripImageUrl(url: string | null | undefined): boolean {
+  const value = url?.trim();
+  if (!value) return true;
+  if (isGenericUnsplashImage(value)) return true;
+  const parsed = safeParseUrl(value);
+  return parsed ? isPlaceholderImageHost(parsed.hostname.toLowerCase()) : false;
+}
+
+function knownDestinationImageUrl(candidates: Array<string | undefined>): string | null {
+  for (const candidate of candidates) {
+    if (!candidate?.trim()) continue;
+    const parts = candidate
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    for (const value of [candidate, ...parts]) {
+      const image = DESTINATION_IMAGE_OVERRIDES[normalizeDestinationKey(value)];
+      if (image) return image;
+    }
+  }
+  return null;
+}
+
 function haversineKm(
   lat1: number,
   lon1: number,
@@ -240,7 +338,7 @@ async function destinationImageFromHit(
     const image = await wikidataImageUrlForSearch(candidate);
     if (image) return image;
   }
-  return null;
+  return knownDestinationImageUrl(candidates);
 }
 
 function hitToGeo(hit: NominatimHit, fallbackQuery: string): GeoResult {

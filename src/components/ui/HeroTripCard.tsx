@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Image, Pressable, Text, View } from 'react-native'
 import { ArrowUpRight, Calendar } from 'lucide-react-native'
 
@@ -19,12 +19,8 @@ export function HeroTripCard({ imageUri, eyebrow, title, dates, onPress }: Props
   const { isDark } = useThemedStyles()
   const { width, scaleFont, isSmallPhone } = useResponsive()
   const heroHeight = Math.min(Math.max(width * 0.48, 180), 280)
-  const [imageFailed, setImageFailed] = useState(false)
-  const imageSource = imageFailed ? defaultTripImage : imageUri
-
-  useEffect(() => {
-    setImageFailed(false)
-  }, [imageUri])
+  const [failedImageUri, setFailedImageUri] = useState<string | null>(null)
+  const imageSource = failedImageUri === imageUri ? defaultTripImage : imageUri
 
   return (
     <Pressable
@@ -45,7 +41,7 @@ export function HeroTripCard({ imageUri, eyebrow, title, dates, onPress }: Props
         style={{ width: '100%', height: '100%' }}
         resizeMode="cover"
         onError={() => {
-          if (imageSource !== defaultTripImage) setImageFailed(true)
+          if (imageSource !== defaultTripImage) setFailedImageUri(imageUri)
         }}
       />
       <View

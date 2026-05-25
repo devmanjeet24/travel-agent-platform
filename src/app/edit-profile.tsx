@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Alert, Platform, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 
@@ -29,18 +29,13 @@ export default function EditProfileScreen() {
   const { data: profile, isLoading } = useProfileQuery()
   const updateMutation = useUpdateProfileMutation()
 
-  const [displayNameInput, setDisplayNameInput] = useState('')
+  const initialDisplayName =
+    profile?.display_name ?? (!isLoading ? (displayName === 'Traveler' ? '' : displayName) : '')
+  const [displayNameDraft, setDisplayNameDraft] = useState<string | null>(null)
   const [fieldError, setFieldError] = useState<string | undefined>()
 
-  useEffect(() => {
-    if (profile?.display_name != null) {
-      setDisplayNameInput(profile.display_name)
-    } else if (!isLoading) {
-      setDisplayNameInput(displayName === 'Traveler' ? '' : displayName)
-    }
-  }, [profile?.display_name, displayName, isLoading])
-
   const email = user?.email ?? ''
+  const displayNameInput = displayNameDraft ?? initialDisplayName
   const avatarName = displayNameInput.trim() || displayName
 
   const handleSave = () => {
@@ -92,7 +87,7 @@ export default function EditProfileScreen() {
           label="Display name"
           value={displayNameInput}
           onChangeText={(text) => {
-            setDisplayNameInput(text)
+            setDisplayNameDraft(text)
             if (fieldError) setFieldError(undefined)
           }}
           placeholder="Your name"

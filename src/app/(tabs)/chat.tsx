@@ -195,7 +195,9 @@ export default function ChatScreen() {
     onError: (msg) => setError(msg),
   })
 
-  speakReplyRef.current = voice.speakReply
+  useEffect(() => {
+    speakReplyRef.current = voice.speakReply
+  }, [voice.speakReply])
 
   useEffect(() => {
     void (async () => {

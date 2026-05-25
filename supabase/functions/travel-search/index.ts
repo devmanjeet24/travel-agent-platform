@@ -5,6 +5,8 @@ import {
   fetchWeather,
   geoFromCoordinates,
   geocodeDestination,
+  geocodeNearDestination,
+  isPlaceholderTripImageUrl,
   searchCitySuggestions,
   searchFlightsEstimate,
   searchHotelsOsm,
@@ -16,7 +18,15 @@ import {
 } from '../_shared/transport-guidance.ts';
 
 type SearchBody = {
-  action?: 'geocode' | 'weather' | 'hotels' | 'flights' | 'context' | 'cities' | 'route';
+  action?:
+    | 'geocode'
+    | 'geocode-itinerary'
+    | 'weather'
+    | 'hotels'
+    | 'flights'
+    | 'context'
+    | 'cities'
+    | 'route';
   query?: string;
   destination?: string;
   origin?: string;
@@ -52,6 +62,27 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function maxActivityDistanceKm(placeType?: string): number {
+  const type = (placeType ?? '').toLowerCase();
+  if (['administrative', 'country', 'boundary'].includes(type)) return 800;
+  return 120;
+}
+
+type CachedHotelRow = {
+  id: string;
+  external_id: string | null;
+  name: string | null;
+  raw: Record<string, unknown> | null;
+};
+
+function isStaleCachedHotel(row: CachedHotelRow): boolean {
+  const name = row.name?.trim() ?? '';
+  if (/^hotel\s*\d+$/i.test(name)) return true;
+  if (!/^(node|way|relation|nominatim)\//.test(row.external_id ?? '')) return true;
+  const source = typeof row.raw?.source === 'string' ? row.raw.source : '';
+  return Boolean(source && !['osm', 'openstreetmap', 'nominatim-osm'].includes(source));
+}
+
 Deno.serve(async (req) => {
   const options = handleOptions(req);
   if (options) return options;
@@ -62,7 +93,7 @@ Deno.serve(async (req) => {
 
   const auth = await requireUser(req);
   if (auth instanceof Response) return auth;
-  const { supabase } = auth;
+  const { user, supabase } = auth;
 
   try {
     const body = (await req.json()) as SearchBody;
@@ -77,7 +108,36 @@ Deno.serve(async (req) => {
     if (action === 'geocode') {
       const geo = await geocodeDestination(body.destination ?? '');
       if (!geo) return jsonResponse({ error: 'Destination not found' }, 404);
-      return jsonResponse({ geo });
+      let updated = false;
+      if (body.tripId) {
+        const { data: currentTrip, error: currentTripError } = await supabase
+          .from('trips')
+          .select('image_url')
+          .eq('id', body.tripId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (currentTripError) {
+          return jsonResponse({ error: currentTripError.message }, 500);
+        }
+        const tripPatch: Record<string, unknown> = {
+          destination_lat: geo.lat,
+          destination_lon: geo.lon,
+          country: geo.country || null,
+          updated_at: new Date().toISOString(),
+        };
+        if (geo.imageUrl) tripPatch.image_url = geo.imageUrl;
+        else if (isPlaceholderTripImageUrl(currentTrip?.image_url)) tripPatch.image_url = null;
+        const { error: tripUpdateError } = await supabase
+          .from('trips')
+          .update(tripPatch)
+          .eq('id', body.tripId)
+          .eq('user_id', user.id);
+        if (tripUpdateError) {
+          return jsonResponse({ error: tripUpdateError.message }, 500);
+        }
+        updated = true;
+      }
+      return jsonResponse({ geo, updated });
     }
 
     if (action === 'weather') {
@@ -186,6 +246,27 @@ Deno.serve(async (req) => {
         if (insertError) {
           return jsonResponse({ error: insertError.message }, 500);
         }
+      } else if (body.tripId) {
+        const { data: cachedHotels, error: cachedHotelsError } = await supabase
+          .from('trip_hotels')
+          .select('id, external_id, name, raw')
+          .eq('trip_id', body.tripId);
+        if (cachedHotelsError) {
+          return jsonResponse({ error: cachedHotelsError.message }, 500);
+        }
+
+        const staleHotelIds = ((cachedHotels ?? []) as CachedHotelRow[])
+          .filter(isStaleCachedHotel)
+          .map((row) => row.id);
+        if (staleHotelIds.length) {
+          const { error: deleteStaleError } = await supabase
+            .from('trip_hotels')
+            .delete()
+            .in('id', staleHotelIds);
+          if (deleteStaleError) {
+            return jsonResponse({ error: deleteStaleError.message }, 500);
+          }
+        }
       }
 
       return jsonResponse({
@@ -194,6 +275,72 @@ Deno.serve(async (req) => {
         source: 'openstreetmap',
         geocodedAs: geo.displayName,
       });
+    }
+
+    if (action === 'geocode-itinerary') {
+      if (!body.tripId) {
+        return jsonResponse({ error: 'tripId is required' }, 400);
+      }
+
+      const { data: trip, error: tripError } = await supabase
+        .from('trips')
+        .select('id, destination')
+        .eq('id', body.tripId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (tripError) return jsonResponse({ error: tripError.message }, 500);
+      if (!trip) return jsonResponse({ error: 'Trip not found' }, 404);
+
+      const geo = await geocodeDestination(String(trip.destination ?? ''));
+      if (!geo) return jsonResponse({ error: 'Destination not found' }, 404);
+
+      const { data: days, error: daysError } = await supabase
+        .from('itinerary_days')
+        .select('id')
+        .eq('trip_id', body.tripId);
+      if (daysError) return jsonResponse({ error: daysError.message }, 500);
+
+      const dayIds = (days ?? []).map((day) => day.id as string);
+      if (!dayIds.length) return jsonResponse({ attempted: 0, updated: 0 });
+
+      const { data: activities, error: activitiesError } = await supabase
+        .from('itinerary_activities')
+        .select('id, name, latitude, longitude')
+        .in('day_id', dayIds)
+        .order('sort_order');
+      if (activitiesError) return jsonResponse({ error: activitiesError.message }, 500);
+
+      let attempted = 0;
+      let updated = 0;
+      const maxAttempts = 20;
+      const maxDistanceKm = maxActivityDistanceKm(geo.placeType);
+
+      for (const activity of activities ?? []) {
+        const latitude = activity.latitude == null ? null : Number(activity.latitude);
+        const longitude = activity.longitude == null ? null : Number(activity.longitude);
+        const hasUsableCoordinate =
+          isValidLatLon(latitude, longitude) &&
+          haversineKm(geo.lat, geo.lon, latitude!, longitude!) <= maxDistanceKm;
+
+        if (hasUsableCoordinate) continue;
+        if (attempted >= maxAttempts) break;
+
+        attempted += 1;
+        const coords = await geocodeNearDestination(String(activity.name ?? ''), geo);
+        if (coords) {
+          const { error: updateActivityError } = await supabase
+            .from('itinerary_activities')
+            .update({ latitude: coords.lat, longitude: coords.lon })
+            .eq('id', activity.id);
+          if (updateActivityError) {
+            return jsonResponse({ error: updateActivityError.message }, 500);
+          }
+          updated += 1;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+
+      return jsonResponse({ attempted, updated });
     }
 
     if (action === 'route') {
