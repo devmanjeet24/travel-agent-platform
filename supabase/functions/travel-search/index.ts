@@ -79,32 +79,60 @@ Deno.serve(async (req) => {
 
     if (action === 'hotels') {
       const dest = body.destination ?? '';
+      const destinationGeo = dest ? await geocodeDestination(dest) : null;
       let geo =
         body.lat != null && body.lon != null
-          ? geoFromCoordinates(body.lat, body.lon, dest)
+          ? geoFromCoordinates(
+            body.lat,
+            body.lon,
+            dest,
+            destinationGeo?.country ?? '',
+            destinationGeo?.countryCode,
+            destinationGeo?.placeType,
+            destinationGeo?.imageUrl ?? null,
+          )
           : null;
       if (!geo) {
-        geo = await geocodeDestination(dest);
+        geo = destinationGeo;
       }
       if (!geo) {
         return jsonResponse({ error: 'Destination not found' }, 404);
       }
       const result = await searchHotelsOsm(geo, budgetInr);
+      const tripImageUrl =
+        geo.imageUrl ?? result.offers.find((h) => h.imageUrl)?.imageUrl ?? null;
 
-      if (body.tripId) {
-        await supabase.from('trip_hotels').delete().eq('trip_id', body.tripId);
-        if (result.offers.length) {
-          await supabase.from('trip_hotels').insert(
-            result.offers.map((h) => ({
-              trip_id: body.tripId,
-              external_id: h.id,
-              name: h.name,
-              rating: h.rating,
-              price_per_night_usd: h.pricePerNightUsd,
-              image_url: h.imageUrl,
-              raw: { ...h.raw, source: h.source },
-            })),
-          );
+      if (body.tripId && tripImageUrl) {
+        const { error: tripImageError } = await supabase
+          .from('trips')
+          .update({ image_url: tripImageUrl, updated_at: new Date().toISOString() })
+          .eq('id', body.tripId);
+        if (tripImageError) {
+          console.error('Could not update trip destination image:', tripImageError.message);
+        }
+      }
+
+      if (body.tripId && result.offers.length) {
+        const { error: deleteError } = await supabase
+          .from('trip_hotels')
+          .delete()
+          .eq('trip_id', body.tripId);
+        if (deleteError) {
+          return jsonResponse({ error: deleteError.message }, 500);
+        }
+        const { error: insertError } = await supabase.from('trip_hotels').insert(
+          result.offers.map((h) => ({
+            trip_id: body.tripId,
+            external_id: h.id,
+            name: h.name,
+            rating: h.rating,
+            price_per_night_usd: h.pricePerNightUsd,
+            image_url: h.imageUrl,
+            raw: { ...h.raw, source: h.source },
+          })),
+        );
+        if (insertError) {
+          return jsonResponse({ error: insertError.message }, 500);
         }
       }
 

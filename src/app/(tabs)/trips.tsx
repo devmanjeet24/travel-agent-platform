@@ -9,7 +9,7 @@ import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { useTripsQuery } from '@/hooks/trips/use-trips-query'
 import { useConfirmDeleteTrip } from '@/hooks/trips/use-confirm-delete-trip'
 import { brand } from '@/constants/design'
-import { formatTripDates } from '@/services/trips/trip-api'
+import { tripCardLabels, tripImageUri } from '@/utils/trip-display'
 
 export default function TripsScreen() {
   const router = useRouter()
@@ -28,25 +28,29 @@ export default function TripsScreen() {
       {isLoading ? (
         <ActivityIndicator className="mt-12" color={brand.primaryDark} />
       ) : hasTrips ? (
-        trips!.map((trip) => (
-          <TripCard
-            key={trip.id}
-            title={trip.title}
-            imageUri={trip.image_url ?? undefined}
-            subtitle={trip.destination}
-            status={
-              trip.status === 'completed'
-                ? 'completed'
-                : trip.status === 'upcoming'
-                  ? 'upcoming'
-                  : 'saved'
-            }
-            onPress={() => router.push(`/trip/${trip.id}`)}
-            onDelete={() =>
-              confirmDelete({ tripId: trip.id, tripTitle: trip.title })
-            }
-          />
-        ))
+        trips!.map((trip) => {
+          const { displayTitle, subtitle } = tripCardLabels(trip)
+
+          return (
+            <TripCard
+              key={trip.id}
+              title={displayTitle}
+              imageUri={tripImageUri(trip)}
+              subtitle={subtitle}
+              status={
+                trip.status === 'completed'
+                  ? 'completed'
+                  : trip.status === 'upcoming'
+                    ? 'upcoming'
+                    : 'saved'
+              }
+              onPress={() => router.push(`/trip/${trip.id}`)}
+              onDelete={() =>
+                confirmDelete({ tripId: trip.id, tripTitle: displayTitle })
+              }
+            />
+          )
+        })
       ) : (
         <EmptyState
           icon={Map}

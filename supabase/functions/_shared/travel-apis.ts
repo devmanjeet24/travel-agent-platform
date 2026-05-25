@@ -13,9 +13,12 @@ import {
 export type GeoResult = {
   name: string;
   country: string;
+  countryCode?: string;
   lat: number;
   lon: number;
   displayName: string;
+  placeType?: string;
+  imageUrl?: string | null;
 };
 
 export type WeatherDay = {
@@ -60,9 +63,19 @@ export type FlightOffer = {
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const OPEN_METEO = 'https://api.open-meteo.com/v1/forecast';
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.openstreetmap.ru/api/interpreter',
+] as const;
 
 const NOMINATIM_HEADERS = {
+  'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge; educational)',
+};
+
+const OVERPASS_HEADERS = {
+  'Content-Type': 'application/x-www-form-urlencoded',
+  'Accept': 'application/json',
   'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge; educational)',
 };
 
@@ -137,11 +150,13 @@ type NominatimHit = {
   importance?: number;
   address?: {
     country?: string;
+    country_code?: string;
     city?: string;
     town?: string;
     village?: string;
     state?: string;
   };
+  extratags?: Record<string, string>;
 };
 
 async function nominatimSearch(
@@ -153,6 +168,7 @@ async function nominatimSearch(
   url.searchParams.set('format', 'json');
   url.searchParams.set('limit', String(opts?.limit ?? 5));
   url.searchParams.set('addressdetails', '1');
+  url.searchParams.set('extratags', '1');
   if (opts?.featureType) {
     url.searchParams.set('featuretype', opts.featureType);
   }
@@ -162,19 +178,33 @@ async function nominatimSearch(
   return (await res.json()) as NominatimHit[];
 }
 
+async function destinationImageFromHit(hit: NominatimHit): Promise<string | null> {
+  const tags = hit.extratags ?? {};
+  const tagged = osmImageFromTags(tags);
+  if (tagged) return tagged;
+  if (tags.wikidata) return wikidataImageUrl(tags.wikidata);
+  return null;
+}
+
 function hitToGeo(hit: NominatimHit, fallbackQuery: string): GeoResult {
-  const name =
+  const cityName =
     hit.address?.city ??
     hit.address?.town ??
-    hit.address?.village ??
+    hit.address?.village;
+  const name =
+    cityName ??
+    hit.address?.state ??
     fallbackQuery.split(',')[0]?.trim() ??
     fallbackQuery;
   return {
     name,
     country: hit.address?.country ?? '',
+    countryCode: hit.address?.country_code?.toUpperCase(),
     lat: Number(hit.lat),
     lon: Number(hit.lon),
     displayName: hit.display_name,
+    placeType: cityName ? 'city' : (hit.type ?? hit.class),
+    imageUrl: null,
   };
 }
 
@@ -288,7 +318,9 @@ export async function geocodeDestination(query: string): Promise<GeoResult | nul
     hit = pickBestGeocodeHit(hits);
   }
   if (!hit) return null;
-  return hitToGeo(hit, q);
+  const geo = hitToGeo(hit, q);
+  geo.imageUrl = await destinationImageFromHit(hit);
+  return geo;
 }
 
 /** Use saved trip coordinates when geocoding drifts from the user's destination label. */
@@ -297,13 +329,19 @@ export function geoFromCoordinates(
   lon: number,
   label: string,
   country = '',
+  countryCode?: string,
+  placeType = 'coordinates',
+  imageUrl: string | null = null,
 ): GeoResult {
   return {
     name: label.split(',')[0]?.trim() || label,
     country,
+    countryCode,
     lat,
     lon,
     displayName: label,
+    placeType,
+    imageUrl,
   };
 }
 
@@ -378,15 +416,55 @@ type OsmElement = {
   tags?: Record<string, string>;
 };
 
-async function overpassQuery(query: string): Promise<OsmElement[]> {
-  const res = await fetch(OVERPASS, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `data=${encodeURIComponent(query)}`,
-  });
-  if (!res.ok) return [];
-  const json = await res.json();
-  return (json.elements ?? []) as OsmElement[];
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function overpassQuery(
+  query: string,
+  opts: { failOnError?: boolean } = {},
+): Promise<OsmElement[]> {
+  let lastError: Error | null = null;
+
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const res = await fetchWithTimeout(
+        endpoint,
+        {
+          method: 'POST',
+          headers: OVERPASS_HEADERS,
+          body: `data=${encodeURIComponent(query)}`,
+        },
+        30_000,
+      );
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        lastError = new Error(
+          `OpenStreetMap hotel search failed (${res.status})${detail ? `: ${detail.slice(0, 160)}` : ''}.`,
+        );
+        continue;
+      }
+      const json = await res.json();
+      return (json.elements ?? []) as OsmElement[];
+    } catch (e) {
+      lastError = e instanceof Error
+        ? e
+        : new Error('OpenStreetMap hotel search failed.');
+    }
+  }
+
+  if (opts.failOnError && lastError) throw lastError;
+  return [];
 }
 
 function elementCoord(el: OsmElement): { lat: number; lon: number } | null {
@@ -431,7 +509,7 @@ function osmImageFromTags(tags: Record<string, string>): string | null {
   const direct = tags.image ?? tags['image:url'];
   if (direct?.startsWith('http')) return direct;
   const commons = tags.wikimedia_commons;
-  if (commons) return commonsFileUrl(commons);
+  if (commons && !commons.startsWith('Category:')) return commonsFileUrl(commons);
   return null;
 }
 
@@ -472,8 +550,9 @@ function hotelQualityScore(
   if (tags.wikidata) score += 2;
   if (tags.website) score += 1;
   if (tags['addr:street'] || tags['addr:city']) score += 2;
-  if (tags.tourism === 'hotel' || tags.tourism === 'motel') score += 3;
+  if (tags.tourism === 'hotel' || tags.tourism === 'motel' || tags.tourism === 'resort') score += 3;
   if (tags.tourism === 'guest_house') score += 1;
+  if (tags.tourism === 'apartment' || tags.tourism === 'chalet') score += 1;
   if (tags.tourism === 'hostel' && !isLowBudgetHotels(budgetInr)) score -= 6;
 
   const coord = elementCoord(el);
@@ -484,25 +563,120 @@ function hotelQualityScore(
   return score;
 }
 
-/** Real hotels from OpenStreetMap — names, addresses, images; nightly INR is estimated when OSM has no rate. */
-export async function searchHotelsOsm(
-  geo: GeoResult,
-  budgetInr?: number,
-): Promise<{ offers: HotelOffer[]; error?: string }> {
-  const query = `
+const HOTEL_SEARCH_RADII_METERS = [12000, 30000, 60000] as const;
+const HOTEL_TOURISM_VALUES = 'hotel|motel|guest_house|hostel|apartment|resort|chalet';
+
+function overpassString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function hotelOverpassQuery(geo: GeoResult, radiusMeters: number): string {
+  return `
 [out:json][timeout:25];
 (
-  node["tourism"~"hotel|motel|guest_house|hostel"](around:12000,${geo.lat},${geo.lon});
-  way["tourism"~"hotel|motel|guest_house"](around:12000,${geo.lat},${geo.lon});
+  node["tourism"~"${HOTEL_TOURISM_VALUES}"](around:${radiusMeters},${geo.lat},${geo.lon});
+  way["tourism"~"${HOTEL_TOURISM_VALUES}"](around:${radiusMeters},${geo.lat},${geo.lon});
+  relation["tourism"~"${HOTEL_TOURISM_VALUES}"](around:${radiusMeters},${geo.lat},${geo.lon});
+  node["building"="hotel"]["name"](around:${radiusMeters},${geo.lat},${geo.lon});
+  way["building"="hotel"]["name"](around:${radiusMeters},${geo.lat},${geo.lon});
+  relation["building"="hotel"]["name"](around:${radiusMeters},${geo.lat},${geo.lon});
 );
-out tags center 24;
+out body center;
 `;
-  const elements = await overpassQuery(query);
-  const named = elements
+}
+
+function isBroadDestination(geo: GeoResult): boolean {
+  const name = geo.name.trim().toLowerCase();
+  const country = geo.country.trim().toLowerCase();
+  const type = (geo.placeType ?? '').toLowerCase();
+  return Boolean(
+    (country && name === country) ||
+      ['administrative', 'country', 'boundary'].includes(type),
+  );
+}
+
+function parsePopulation(tags: Record<string, string>): number {
+  const raw = tags.population?.replace(/[^\d]/g, '');
+  const population = raw ? Number(raw) : 0;
+  return Number.isFinite(population) ? population : 0;
+}
+
+async function findCountryAnchorGeos(geo: GeoResult): Promise<GeoResult[]> {
+  const countryCode = geo.countryCode?.trim().toUpperCase();
+  const countryName = (geo.country || geo.name).trim();
+  if (!countryCode && !countryName) return [];
+
+  const areaSelector = countryCode
+    ? `area["ISO3166-1"="${overpassString(countryCode)}"]`
+    : `area["name"="${overpassString(countryName)}"]["boundary"="administrative"]`;
+  const cityQuery = `
+[out:json][timeout:30];
+${areaSelector}->.searchArea;
+node(area.searchArea)["place"="city"];
+out body;
+`;
+  const townQuery = `
+[out:json][timeout:30];
+${areaSelector}->.searchArea;
+node(area.searchArea)["place"="town"];
+out body;
+`;
+
+  let elements = await overpassQuery(cityQuery);
+  if (!elements.length) {
+    elements = await overpassQuery(townQuery);
+  }
+  return elements
+    .map((el) => {
+      const tags = el.tags ?? {};
+      const coord = elementCoord(el);
+      const name = tags['name:en']?.trim() || tags.name?.trim();
+      if (!coord || !name) return null;
+      const population = parsePopulation(tags);
+      const capitalBoost = tags.capital === 'yes'
+        ? 50_000_000
+        : tags.capital
+          ? 5_000_000
+          : 0;
+      const cityBoost = tags.place === 'city' ? 1_000_000 : 0;
+      return {
+        score: population + capitalBoost + cityBoost,
+        geo: {
+          name,
+          country: geo.country,
+          countryCode: geo.countryCode,
+          lat: coord.lat,
+          lon: coord.lon,
+          displayName: geo.country ? `${name}, ${geo.country}` : name,
+          placeType: 'city',
+          imageUrl: null,
+        } satisfies GeoResult,
+      };
+    })
+    .filter((item): item is { score: number; geo: GeoResult } => Boolean(item))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((item) => item.geo);
+}
+
+function isAccommodationElement(tags: Record<string, string>): boolean {
+  if (tags.tourism && new RegExp(`^(${HOTEL_TOURISM_VALUES})$`).test(tags.tourism)) {
+    return true;
+  }
+  return tags.building === 'hotel';
+}
+
+function namedHotelElements(
+  elements: OsmElement[],
+  geo: GeoResult,
+  budgetInr?: number,
+): OsmElement[] {
+  return elements
     .filter((el) => {
       const tags = el.tags ?? {};
       const name = osmHotelName(tags);
       if (!name) return false;
+      if (!isAccommodationElement(tags)) return false;
       if (tags.tourism === 'hostel' && !isLowBudgetHotels(budgetInr)) return false;
       if (tags.abandoned === 'yes' || tags.disused === 'yes') return false;
       return true;
@@ -512,6 +686,54 @@ out tags center 24;
         hotelQualityScore(b, geo, budgetInr) - hotelQualityScore(a, geo, budgetInr),
     )
     .slice(0, 16);
+}
+
+/** Real hotels from OpenStreetMap — names, addresses, images; nightly INR is estimated when OSM has no rate. */
+export async function searchHotelsOsm(
+  geo: GeoResult,
+  budgetInr?: number,
+): Promise<{ offers: HotelOffer[]; error?: string }> {
+  let named: OsmElement[] = [];
+  let hotelGeo = geo;
+  let searchRadiusMeters = HOTEL_SEARCH_RADII_METERS[0];
+
+  const searchAround = async (candidateGeo: GeoResult) => {
+    const finalRadius = HOTEL_SEARCH_RADII_METERS[HOTEL_SEARCH_RADII_METERS.length - 1];
+    for (const radiusMeters of HOTEL_SEARCH_RADII_METERS) {
+      const elements = await overpassQuery(hotelOverpassQuery(candidateGeo, radiusMeters), {
+        failOnError: true,
+      });
+      const candidates = namedHotelElements(elements, candidateGeo, budgetInr);
+      if (candidates.length || radiusMeters === finalRadius) {
+        return { candidates, radiusMeters };
+      }
+    }
+    return { candidates: [] as OsmElement[], radiusMeters: finalRadius };
+  };
+
+  try {
+    const primary = await searchAround(geo);
+    named = primary.candidates;
+    searchRadiusMeters = primary.radiusMeters;
+
+    if (!named.length && isBroadDestination(geo)) {
+      const anchors = await findCountryAnchorGeos(geo);
+      for (const anchorGeo of anchors) {
+        const anchored = await searchAround(anchorGeo);
+        if (anchored.candidates.length) {
+          named = anchored.candidates;
+          hotelGeo = anchorGeo;
+          searchRadiusMeters = anchored.radiusMeters;
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    return {
+      offers: [],
+      error: e instanceof Error ? e.message : 'OpenStreetMap hotel search failed.',
+    };
+  }
 
   if (!named.length) {
     return {
@@ -538,12 +760,12 @@ out tags center 24;
       osmHotelAddress(tags) ??
       (coord
         ? `${coord.lat.toFixed(4)}, ${coord.lon.toFixed(4)}`
-        : geo.displayName);
+        : hotelGeo.displayName);
 
     const osmFeeInr = parseOsmFeeInr(tags);
     const pricePerNight = estimateHotelPriceInr(stars, budgetInr, osmFeeInr);
     const distanceKm = coord
-      ? Math.round(haversineKm(geo.lat, geo.lon, coord.lat, coord.lon) * 10) / 10
+      ? Math.round(haversineKm(hotelGeo.lat, hotelGeo.lon, coord.lat, coord.lon) * 10) / 10
       : null;
 
     offers.push({
@@ -565,6 +787,8 @@ out tags center 24;
         priceNote: osmFeeInr != null
           ? 'Nightly rate from OpenStreetMap fee tag'
           : 'Estimated nightly rate — OSM has no live room prices for this property',
+        searchRadiusMeters,
+        searchedFrom: hotelGeo.displayName,
         osm: { type: el.type, id: el.id, tags },
         coord,
       },

@@ -70,7 +70,8 @@ export async function createTripNotifications(params: {
     });
   }
 
-  await supabase.from('notifications').insert(rows);
+  const { error } = await supabase.from('notifications').insert(rows);
+  if (error) throw new Error(error.message);
 }
 
 export function formatNotificationTime(iso: string): string {

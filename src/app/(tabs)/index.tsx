@@ -11,7 +11,6 @@ import { TravelBanner } from '@/components/ui/TravelBanner'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import {
   brand,
-  defaultTripImage,
   featuredDestinations,
   quickActions,
   travelBanners,
@@ -24,6 +23,7 @@ import { useTripsQuery } from '@/hooks/trips/use-trips-query'
 import { formatTripDates, tripDaysUntil } from '@/services/trips/trip-api'
 import { useAuth } from '@/providers/auth-provider'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
+import { tripCardLabels, tripImageUri } from '@/utils/trip-display'
 
 export default function HomeScreen() {
   const router = useRouter()
@@ -57,6 +57,7 @@ export default function HomeScreen() {
     quickActionColumns === 1
       ? contentWidth
       : (contentWidth - actionGap * (quickActionColumns - 1)) / quickActionColumns
+  const upcomingLabels = upcoming ? tripCardLabels(upcoming) : null
 
   return (
     <ScreenWrapper scroll tabInset>
@@ -110,13 +111,13 @@ export default function HomeScreen() {
         <ActivityIndicator style={{ marginTop: 32 }} color={brand.primaryDark} />
       ) : upcoming ? (
         <HeroTripCard
-          imageUri={upcoming.image_url ?? defaultTripImage}
+          imageUri={tripImageUri(upcoming)}
           eyebrow={
             upcoming.status === 'upcoming'
               ? `Upcoming · ${tripDaysUntil(upcoming.start_date) ?? '—'} days`
               : 'Saved trip'
           }
-          title={upcoming.destination}
+          title={upcomingLabels?.displayTitle ?? upcoming.destination}
           dates={formatTripDates(upcoming.start_date, upcoming.end_date)}
           onPress={() => router.push(`/trip/${upcoming.id}`)}
         />

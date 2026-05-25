@@ -3,6 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import type { ReactNode } from 'react'
 
 import { useResponsive } from '@/hooks/use-responsive'
+import { useKeyboardBottomInset } from '@/hooks/use-keyboard-bottom-inset'
 import { useTabScreenInsets } from '@/hooks/use-tab-screen-insets'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { isWeb } from '@/lib/ui-styles'
@@ -77,6 +78,7 @@ export default function ScreenWrapper({
   const avoidKeyboard = keyboardAvoiding ?? scroll
   const theme = useThemedStyles()
   const { width, horizontalPadding, contentWidth } = useResponsive()
+  const keyboardInset = useKeyboardBottomInset()
   const tabInsets = useTabScreenInsets()
   const padX = padded ? horizontalPadding : 0
   const padBottom = scroll
@@ -86,6 +88,8 @@ export default function ScreenWrapper({
         ? 48
         : 24 + tabInsets.insets.bottom
     : undefined
+  const keyboardBottomPadding =
+    avoidKeyboard && Platform.OS === 'android' ? keyboardInset : 0
 
   const inner = (
     <View
@@ -107,14 +111,14 @@ export default function ScreenWrapper({
     <ScrollView
       style={{ flex: 1 }}
       contentContainerStyle={{
-        paddingBottom: padBottom,
+        paddingBottom: (padBottom ?? 0) + keyboardBottomPadding,
         paddingHorizontal: padX,
         flexGrow: centered || scrollFlexGrow ? 1 : undefined,
         justifyContent: centered ? 'center' : undefined,
       }}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-      automaticallyAdjustKeyboardInsets={avoidKeyboard && Platform.OS !== 'web'}
+      automaticallyAdjustKeyboardInsets={avoidKeyboard && Platform.OS === 'ios'}
       nestedScrollEnabled
       contentInsetAdjustmentBehavior="automatic"
       showsVerticalScrollIndicator={false}
@@ -127,9 +131,9 @@ export default function ScreenWrapper({
     avoidKeyboard ? (
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={keyboardVerticalOffset}
-        enabled={Platform.OS === 'ios'}
+        enabled={Platform.OS !== 'web'}
       >
         {scrollView}
       </KeyboardAvoidingView>

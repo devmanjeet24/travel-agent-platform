@@ -64,8 +64,12 @@ eas env:create --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "YOUR_ANON_KEY" --en
 
 Optional: copy the same vars for `development` if you use `eas build --profile development`.
 
-4. In **Supabase → Authentication → URL configuration**, add redirect URL:
-   `travelagentplatform://` (matches `scheme` in `app.json`).
+4. In **Supabase → Authentication → URL configuration** (required for email confirm & OAuth on APK):
+   - **Redirect URLs** (add all):
+     - `travelagentplatform://auth/callback`
+     - `travelagentplatform://**`
+     - `http://localhost:8081/auth/callback` (Expo web dev only)
+   - **Site URL**: set to `travelagentplatform://auth/callback` for mobile-first testing, or your production web URL — **do not** leave `http://localhost:3000` if you ship APK builds (confirmation emails will open localhost on the phone).
 
 ### Troubleshooting failed builds
 
@@ -109,6 +113,8 @@ Configure in **Supabase → Authentication → Providers**, not in `.env` for ba
 
 ## Email sign-up (confirmation)
 
-By default Supabase requires users to **confirm their email** before sign-in works. After sign-up, check your inbox for the Supabase confirmation link; sign-in returns `400` until the email is confirmed.
+By default Supabase requires users to **confirm their email** before sign-in works. After sign-up, open the link on your phone — it should launch the app via `travelagentplatform://auth/callback` (not localhost). Sign-in returns `400` until the email is confirmed.
 
-For local development only, you can disable this under **Supabase → Authentication → Providers → Email → Confirm email**.
+The app passes `emailRedirectTo` on sign-up; Supabase must allow that URL in **Redirect URLs** (see EAS step 4 above).
+
+For local development only, you can disable confirmation under **Supabase → Authentication → Providers → Email → Confirm email**.

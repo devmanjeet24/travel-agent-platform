@@ -26,7 +26,7 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
   useEffect(() => {
     hotelsAttempted.current = false
     flightsAttempted.current = false
-  }, [tripId])
+  }, [tripId, trip?.destination, trip?.destination_lat, trip?.destination_lon])
 
   useEffect(() => {
     if (!trip?.id || !trip.start_date || !trip.end_date) return
@@ -55,6 +55,8 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
     trip?.start_date,
     trip?.end_date,
     trip?.budget_usd,
+    trip?.destination_lat,
+    trip?.destination_lon,
     hotelsLoading,
     hotels?.length,
     queryClient,

@@ -38,7 +38,9 @@ export default function HotelsScreen() {
         destinationLat: trip.destination_lat,
         destinationLon: trip.destination_lon,
       }) as { error?: string | null; hotels?: unknown[] }
-      void queryClient.invalidateQueries({ queryKey: tripKeys.hotels(trip.id) })
+      await queryClient.invalidateQueries({ queryKey: tripKeys.hotels(trip.id) })
+      void queryClient.invalidateQueries({ queryKey: tripKeys.detail(trip.id) })
+      void queryClient.invalidateQueries({ queryKey: tripKeys.all })
       if (result.error && !result.hotels?.length) {
         setRefreshError(result.error)
       }

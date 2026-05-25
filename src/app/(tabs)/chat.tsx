@@ -11,7 +11,6 @@ import {
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { useLocalSearchParams } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
-import * as ImagePicker from 'expo-image-picker'
 import { Paperclip, Sparkles, X } from 'lucide-react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
@@ -262,33 +261,6 @@ export default function ChatScreen() {
     }
   }
 
-  const pickImage = async () => {
-    if (!user) {
-      setError('Sign in to attach images')
-      return
-    }
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
-    if (!perm.granted) {
-      setError('Photo library permission is required')
-      return
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-    })
-    if (result.canceled) return
-    const asset = result.assets[0]
-    const ext = asset.uri.split('.').pop()?.toLowerCase() ?? 'jpg'
-    const mime = ext === 'png' ? 'image/png' : 'image/jpeg'
-    try {
-      const url = await uploadChatAttachment(user.id, asset.uri, `photo.${ext}`, mime)
-      setPendingAttachments((prev) => [...prev, { url, name: `photo.${ext}`, type: mime }])
-      setError(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Image upload failed')
-    }
-  }
-
   const removeAttachment = (url: string) => {
     setPendingAttachments((prev) => prev.filter((a) => a.url !== url))
   }
@@ -498,7 +470,6 @@ export default function ChatScreen() {
           onChangeText={setInput}
           onSend={() => void sendMessage(input)}
           onPickAttachment={() => void pickAttachment()}
-          onPickImage={() => void pickImage()}
           onToggleVoice={() => void voice.toggleRecording()}
           onStopVoice={() => void stopSpeaking().then(() => voice.interrupt())}
           canSend={canSend}

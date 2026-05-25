@@ -237,22 +237,33 @@ ${travelContext}`;
           timezone: weather.timezone,
         };
       }
+      const hotelResult = await searchHotelsOsm(geo, budgetInr);
+      const tripImageUrl =
+        geo.imageUrl ??
+        hotelResult.offers.find((h) => h.imageUrl)?.imageUrl ??
+        trip.image_url ??
+        null;
       await supabase
         .from('trips')
         .update({
           destination_lat: geo.lat,
           destination_lon: geo.lon,
           country: geo.country,
+          image_url: tripImageUrl,
           weather_summary: weatherSummary,
           status: 'saved',
           updated_at: new Date().toISOString(),
         })
         .eq('id', trip.id);
 
-      const hotelResult = await searchHotelsOsm(geo, budgetInr);
       if (hotelResult.offers.length) {
-        await supabase.from('trip_hotels').delete().eq('trip_id', trip.id);
-        await supabase.from('trip_hotels').insert(
+        const { error: hotelDeleteError } = await supabase
+          .from('trip_hotels')
+          .delete()
+          .eq('trip_id', trip.id);
+        if (hotelDeleteError) throw new Error(hotelDeleteError.message);
+
+        const { error: hotelInsertError } = await supabase.from('trip_hotels').insert(
           hotelResult.offers.map((h) => ({
             trip_id: trip.id,
             external_id: h.id,
@@ -263,6 +274,7 @@ ${travelContext}`;
             raw: { ...h.raw, source: h.source },
           })),
         );
+        if (hotelInsertError) throw new Error(hotelInsertError.message);
       }
 
       if (trip.origin_city && trip.start_date && routeAnalysis && shouldIncludeFlights(routeAnalysis)) {

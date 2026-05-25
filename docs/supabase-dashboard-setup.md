@@ -111,7 +111,14 @@ Or: `./scripts/deploy-edge-functions.sh`
 - **Email** enabled (confirm email on/off for dev)
 - Optional: Google/Apple later
 
-**Verify:** Sign up in app → user appears under **Authentication → Users**.
+**Dashboard → Authentication → URL configuration** (required for APK / deep links):
+
+| Setting | Value |
+|---------|--------|
+| **Redirect URLs** | `travelagentplatform://auth/callback`, `travelagentplatform://**`, and `http://localhost:8081/auth/callback` for web dev |
+| **Site URL** | `travelagentplatform://auth/callback` (mobile) or your deployed web origin — avoid `http://localhost:3000` for production |
+
+**Verify:** Sign up in app → confirmation email → link opens the app (not localhost) → user can sign in.
 
 ---
 

@@ -12,10 +12,10 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { useCreateTripMutation } from '@/hooks/trips/use-create-trip-mutation'
 import { usePlanTripMutation } from '@/hooks/trips/use-plan-trip-mutation'
-import { createTripNotifications } from '@/services/notifications/notification-api'
 import { scheduleTripReminder } from '@/lib/notifications-setup'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
+import { useCreateTripNotificationsMutation } from '@/hooks/notifications/use-notifications-query'
 
 export default function TripWizardScreen() {
   const router = useRouter()
@@ -23,6 +23,7 @@ export default function TripWizardScreen() {
   const { user } = useAuth()
   const createTrip = useCreateTripMutation()
   const planTrip = usePlanTripMutation()
+  const createNotifications = useCreateTripNotificationsMutation()
 
   const [destination, setDestination] = useState('')
   const [title, setTitle] = useState('')
@@ -41,9 +42,10 @@ export default function TripWizardScreen() {
     setError(null)
 
     try {
+      const destinationName = destination.trim()
       const trip = await createTrip.mutateAsync({
-        title: title.trim() || `${destination.trim()} trip`,
-        destination: destination.trim(),
+        title: title.trim() || destinationName,
+        destination: destinationName,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         travelers: Number(travelers) || 1,
@@ -55,22 +57,38 @@ export default function TripWizardScreen() {
       await planTrip.mutateAsync(trip.id)
 
       if (user) {
-        await createTripNotifications({
-          userId: user.id,
-          tripId: trip.id,
-          destination: trip.destination,
-          startDate: trip.start_date,
-        })
+        try {
+          await createNotifications.mutateAsync({
+            userId: user.id,
+            tripId: trip.id,
+            destination: trip.destination,
+            startDate: trip.start_date,
+          })
+        } catch (notificationError) {
+          console.warn(
+            'Could not create trip notifications:',
+            notificationError instanceof Error ? notificationError.message : notificationError,
+          )
+        }
       }
 
       if (trip.start_date) {
-        const remind = new Date(trip.start_date)
-        remind.setDate(remind.getDate() - 1)
-        await scheduleTripReminder({
-          title: 'Trip tomorrow',
-          body: `Your trip to ${trip.destination} starts soon.`,
-          triggerDate: remind,
-        })
+        try {
+          const remind = parseIsoDateString(trip.start_date)
+          if (remind) {
+            remind.setDate(remind.getDate() - 1)
+            await scheduleTripReminder({
+              title: 'Trip tomorrow',
+              body: `Your trip to ${trip.destination} starts soon.`,
+              triggerDate: remind,
+            })
+          }
+        } catch (reminderError) {
+          console.warn(
+            'Could not schedule trip reminder:',
+            reminderError instanceof Error ? reminderError.message : reminderError,
+          )
+        }
       }
 
       router.replace(`/trip/${trip.id}` as never)
@@ -79,11 +97,11 @@ export default function TripWizardScreen() {
     }
   }
 
-  const busy = createTrip.isPending || planTrip.isPending
+  const busy = createTrip.isPending || planTrip.isPending || createNotifications.isPending
 
   return (
     <RequireSession>
-      <ScreenWrapper scroll scrollFlexGrow={false} keyboardAvoiding>
+      <ScreenWrapper scroll keyboardAvoiding>
         <ScreenHeader
           title="Trip wizard"
           subtitle="Creates trip · AI itinerary · live APIs"
