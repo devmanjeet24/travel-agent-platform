@@ -89,6 +89,7 @@ export default function TripOverviewScreen() {
         startDate: trip.start_date ?? undefined,
         endDate: trip.end_date ?? undefined,
         budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+        travelers: trip.travelers,
         destinationLat: trip.destination_lat,
         destinationLon: trip.destination_lon,
       })

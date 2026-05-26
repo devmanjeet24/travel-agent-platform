@@ -1,8 +1,6 @@
-import { useEffect, useRef } from 'react'
 import { ActivityIndicator } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Map } from 'lucide-react-native'
-import { useQueryClient } from '@tanstack/react-query'
 
 import { TripCard } from '@/components/ui/TripCard'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -11,49 +9,16 @@ import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { useTripsQuery } from '@/hooks/trips/use-trips-query'
 import { useConfirmDeleteTrip } from '@/hooks/trips/use-confirm-delete-trip'
 import { brand } from '@/constants/design'
-import { needsTripDestinationSync, tripCardLabels, tripImageUri } from '@/utils/trip-display'
-import { syncTripDestination } from '@/services/travel/travel-api'
-import { tripKeys } from '@/services/trips/trip-keys'
+import { tripCardLabels, tripImageUri } from '@/utils/trip-display'
+import { useSyncTripDestinations } from '@/hooks/trips/use-sync-trip-destinations'
 
 export default function TripsScreen() {
   const router = useRouter()
-  const queryClient = useQueryClient()
   const { data: trips, isLoading } = useTripsQuery()
   const { confirmDelete } = useConfirmDeleteTrip()
-  const destinationSyncAttempted = useRef(new Set<string>())
   const hasTrips = (trips?.length ?? 0) > 0
 
-  useEffect(() => {
-    if (!trips?.length) return
-
-    let cancelled = false
-    const candidates = trips
-      .filter((trip) => needsTripDestinationSync(trip))
-      .filter((trip) => !destinationSyncAttempted.current.has(trip.id))
-      .slice(0, 5)
-
-    if (!candidates.length) return
-
-    for (const trip of candidates) {
-      destinationSyncAttempted.current.add(trip.id)
-      void syncTripDestination({ tripId: trip.id, destination: trip.destination })
-        .then(() => {
-          if (!cancelled) {
-            void queryClient.invalidateQueries({ queryKey: tripKeys.all })
-          }
-        })
-        .catch((error) => {
-          console.warn('[TripsScreen] destination image sync failed', {
-            tripId: trip.id,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        })
-    }
-
-    return () => {
-      cancelled = true
-    }
-  }, [queryClient, trips])
+  useSyncTripDestinations(trips)
 
   return (
     <ScreenWrapper scroll tabInset scrollFlexGrow>

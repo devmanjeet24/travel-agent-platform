@@ -195,7 +195,11 @@ Deno.serve(async (req) => {
       if (!geo) {
         return jsonResponse({ error: 'Destination not found' }, 404);
       }
-      const result = await searchHotelsOsm(geo, budgetInr);
+      const result = await searchHotelsOsm(geo, {
+        budgetInr,
+        tripDays: tripDaysFromDates(body.startDate, body.endDate),
+        travelers: body.travelers ?? 1,
+      });
       console.debug('[travel-search] hotel API response', {
         destination: dest,
         searchedFrom: geo.displayName,
@@ -204,8 +208,15 @@ Deno.serve(async (req) => {
         hotelCount: result.offers.length,
         error: result.error ?? null,
       });
+      const destinationImageFromHotel =
+        result.offers
+          .map((h) => h.raw?.destinationImageUrl)
+          .find((url): url is string => typeof url === 'string' && url.length > 0) ?? null;
       const tripImageUrl =
-        geo.imageUrl ?? result.offers.find((h) => h.imageUrl)?.imageUrl ?? null;
+        geo.imageUrl ??
+        destinationImageFromHotel ??
+        result.offers.find((h) => h.raw?.imageSource === 'hotel')?.imageUrl ??
+        null;
 
       if (body.tripId) {
         const tripPatch: Record<string, unknown> = {

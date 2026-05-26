@@ -10,6 +10,8 @@ export type TripHotelRaw = {
   distanceKm?: number | null
   priceSource?: 'osm_fee' | 'estimate'
   priceNote?: string | null
+  destinationImageUrl?: string | null
+  imageSource?: string | null
   osm?: { type?: string; id?: number; tags?: Record<string, string> }
   coord?: { lat: number; lon: number } | null
 }
@@ -48,6 +50,11 @@ export function hotelPriceLabel(raw: unknown): string {
   if (r?.priceNote) return r.priceNote
   if (r?.priceSource === 'osm_fee') return 'Rate from OpenStreetMap'
   return 'Estimated nightly rate (OSM has no live prices)'
+}
+
+export function hotelFallbackImageUrl(raw: unknown): string | null {
+  const r = parseHotelRaw(raw)
+  return normalizeHotelImageUrl(r?.destinationImageUrl)
 }
 
 export function hotelSourceLabel(raw: unknown): string {

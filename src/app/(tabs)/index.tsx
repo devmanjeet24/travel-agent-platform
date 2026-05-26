@@ -20,6 +20,7 @@ import { cardShadow, radii } from '@/lib/ui-styles'
 import { useJourneyStats } from '@/hooks/profile/use-journey-stats'
 import { useSyncProfileStats } from '@/hooks/profile/use-sync-profile-stats'
 import { useTripsQuery } from '@/hooks/trips/use-trips-query'
+import { useSyncTripDestinations } from '@/hooks/trips/use-sync-trip-destinations'
 import { formatTripDates, tripDaysUntil } from '@/services/trips/trip-api'
 import { useAuth } from '@/providers/auth-provider'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
@@ -32,6 +33,7 @@ export default function HomeScreen() {
   const { data: trips, isLoading } = useTripsQuery()
   const { stats } = useJourneyStats()
   useSyncProfileStats()
+  useSyncTripDestinations(trips)
 
   const hour = new Date().getHours()
   const greeting =
@@ -49,7 +51,6 @@ export default function HomeScreen() {
     isSmallPhone,
     isDesktop,
     quickActionColumns,
-    horizontalPadding,
     contentWidth,
   } = useResponsive()
   const actionGap = 12

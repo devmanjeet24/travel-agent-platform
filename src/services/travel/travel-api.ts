@@ -134,6 +134,7 @@ export async function searchAndCacheHotels(params: {
   startDate?: string;
   endDate?: string;
   budgetInr?: number;
+  travelers?: number;
   destinationLat?: number | null;
   destinationLon?: number | null;
 }): Promise<SearchHotelsResult> {
@@ -156,6 +157,7 @@ export async function searchAndCacheHotels(params: {
     ...(params.startDate ? { startDate: params.startDate } : {}),
     ...(params.endDate ? { endDate: params.endDate } : {}),
     budgetInr: params.budgetInr,
+    travelers: params.travelers,
     ...(hasValidDestinationCoordinate
       ? { lat: params.destinationLat, lon: params.destinationLon }
       : {}),

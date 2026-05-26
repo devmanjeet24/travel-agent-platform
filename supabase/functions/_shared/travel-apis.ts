@@ -73,6 +73,7 @@ const NOMINATIM_TIMEOUT_MS = 8_000;
 const OPEN_METEO_TIMEOUT_MS = 8_000;
 const OVERPASS_TIMEOUT_MS = 8_000;
 const WIKIDATA_TIMEOUT_MS = 5_000;
+const COMMONS_TIMEOUT_MS = 3_000;
 
 const NOMINATIM_HEADERS = {
   'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge; educational)',
@@ -91,13 +92,18 @@ const PLACEHOLDER_IMAGE_HOSTS = [
   'via.placeholder.com',
   'source.unsplash.com',
 ] as const;
-const PLACEHOLDER_UNSPLASH_PHOTO_IDS = ['photo-1488646953014-85cb44e25828'] as const;
+const PLACEHOLDER_UNSPLASH_PHOTO_IDS = [
+  'photo-1488646953014-85cb44e25828',
+  'photo-1476514525535-07fb3b4ae5f1',
+  'photo-1507525428034-b723cf961d3e',
+] as const;
 
 const DESTINATION_IMAGE_OVERRIDES: Record<string, string> = {
   bali: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1200&q=80',
   indonesia: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1200&q=80',
   paris: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1200&q=80',
   france: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1200&q=80',
+  'paris france': 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1200&q=80',
   tokyo: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1200&q=80',
   japan: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1200&q=80',
   santorini: 'https://images.unsplash.com/photo-1613395877344-13f27c9eb15d?w=1200&q=80',
@@ -112,10 +118,14 @@ const DESTINATION_IMAGE_OVERRIDES: Record<string, string> = {
   australia: 'https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=1200&q=80',
   sydney: 'https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=1200&q=80',
   melbourne: 'https://images.unsplash.com/photo-1545044846-351ba102b6d5?w=1200&q=80',
+  'melbourne australia': 'https://images.unsplash.com/photo-1545044846-351ba102b6d5?w=1200&q=80',
   'new zealand': 'https://images.unsplash.com/photo-1469521669194-babb45599def?w=1200&q=80',
   auckland: 'https://images.unsplash.com/photo-1507699622108-4be3abd695ad?w=1200&q=80',
   queenstown: 'https://images.unsplash.com/photo-1589871973318-9ca1258faa5d?w=1200&q=80',
   dubai: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
+  uae: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
+  'united arab emirates': 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
+  'dubai uae': 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
   london: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&q=80',
   'new york': 'https://images.unsplash.com/photo-1485871981521-5b1fd3805eee?w=1200&q=80',
   usa: 'https://images.unsplash.com/photo-1485871981521-5b1fd3805eee?w=1200&q=80',
@@ -231,19 +241,99 @@ function parseOsmFeeInr(tags: Record<string, string>): number | null {
   return null;
 }
 
+export type HotelSearchOptions = {
+  budgetInr?: number;
+  tripDays?: number;
+  travelers?: number;
+};
+
+type HotelPriceSignals = {
+  name: string;
+  tourism?: string | null;
+  distanceKm?: number | null;
+};
+
+function normalizeHotelSearchOptions(input?: HotelSearchOptions | number): HotelSearchOptions {
+  return typeof input === 'number' ? { budgetInr: input } : (input ?? {});
+}
+
+function stableHash(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function tourismBasePriceInr(tourism?: string | null): number {
+  switch ((tourism ?? '').toLowerCase()) {
+    case 'hostel':
+      return 1500;
+    case 'guest_house':
+      return 2200;
+    case 'motel':
+      return 3000;
+    case 'apartment':
+      return 3200;
+    case 'chalet':
+      return 4200;
+    case 'resort':
+      return 7200;
+    case 'hotel':
+      return 4200;
+    default:
+      return 3200;
+  }
+}
+
+function starsBasePriceInr(stars: number | null): number | null {
+  if (!stars) return null;
+  if (stars >= 5) return 11000;
+  if (stars >= 4) return 7000;
+  if (stars >= 3) return 4500;
+  if (stars >= 2) return 2800;
+  return 1800;
+}
+
+function roundToNearestHundred(value: number): number {
+  return Math.round(value / 100) * 100;
+}
+
 function estimateHotelPriceInr(
   stars: number | null,
-  budgetInr?: number,
+  options?: HotelSearchOptions,
   osmFeeInr?: number | null,
+  signals?: HotelPriceSignals,
 ): number | null {
   if (osmFeeInr != null) return osmFeeInr;
-  if (budgetInr && budgetInr > 0) {
-    const nightly = Math.round(budgetInr / 7 / 2);
-    return Math.max(800, Math.min(nightly, 12000));
+  const tourism = signals?.tourism ?? null;
+  const name = signals?.name ?? '';
+  const distanceKm = signals?.distanceKm ?? null;
+  const baseFromStars = starsBasePriceInr(stars);
+  let estimate = baseFromStars ?? tourismBasePriceInr(tourism);
+
+  if (distanceKm != null) {
+    if (distanceKm <= 1.5) estimate *= 1.14;
+    else if (distanceKm <= 5) estimate *= 1.06;
+    else if (distanceKm >= 18) estimate *= 0.88;
+    else if (distanceKm >= 10) estimate *= 0.94;
   }
-  if (stars && stars >= 4) return 5500;
-  if (stars && stars >= 3) return 3500;
-  return 2200;
+
+  const budgetInr = options?.budgetInr;
+  if (budgetInr && budgetInr > 0) {
+    const travelers = Math.max(1, options?.travelers ?? 1);
+    const tripDays = Math.max(1, options?.tripDays ?? 7);
+    const roomCount = Math.max(1, Math.ceil(travelers / 2));
+    const perRoomNightBudget = Math.max(900, (budgetInr * 0.35) / tripDays / roomCount);
+    estimate = estimate * 0.65 + perRoomNightBudget * 0.35;
+  }
+
+  const variance = ((stableHash(name || tourism || 'hotel') % 25) - 12) / 100;
+  estimate *= 1 + variance;
+
+  const min = tourism === 'hostel' ? 700 : 1000;
+  const max = stars && stars >= 5 ? 35_000 : tourism === 'resort' ? 28_000 : 22_000;
+  return Math.max(min, Math.min(roundToNearestHundred(estimate), max));
 }
 
 function isLowBudgetHotels(budgetInr?: number): boolean {
@@ -759,6 +849,62 @@ async function wikidataImageUrl(wikidataTag: string): Promise<string | null> {
   return null;
 }
 
+async function commonsImageUrlForSearch(query: string): Promise<string | null> {
+  const q = query.trim();
+  if (!q) return null;
+  try {
+    const url = new URL('https://commons.wikimedia.org/w/api.php');
+    url.searchParams.set('action', 'query');
+    url.searchParams.set('generator', 'search');
+    url.searchParams.set('gsrnamespace', '6');
+    url.searchParams.set('gsrsearch', q);
+    url.searchParams.set('gsrlimit', '3');
+    url.searchParams.set('prop', 'imageinfo');
+    url.searchParams.set('iiprop', 'url');
+    url.searchParams.set('iiurlwidth', '800');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('origin', '*');
+    const res = await fetchWithTimeout(
+      url.toString(),
+      { headers: { 'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge)' } },
+      COMMONS_TIMEOUT_MS,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const pages = Object.values(data?.query?.pages ?? {}) as Array<{
+      imageinfo?: Array<{ thumburl?: string; url?: string }>;
+    }>;
+    for (const page of pages) {
+      const image = page.imageinfo?.[0]?.thumburl ?? page.imageinfo?.[0]?.url;
+      if (typeof image === 'string' && image.startsWith('http')) return image;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+async function hotelImageFromSearch(
+  name: string,
+  geo: GeoResult,
+): Promise<string | null> {
+  const place = geo.name.trim();
+  const queries = [
+    `${name} ${place}`,
+    `${name} hotel ${place}`,
+  ].filter((query, index, queries): query is string =>
+    Boolean(query.trim()) && queries.indexOf(query) === index
+  );
+
+  for (const query of queries) {
+    const wikidata = await wikidataImageUrlForSearch(query);
+    if (wikidata) return wikidata;
+    const commons = await commonsImageUrlForSearch(query);
+    if (commons) return commons;
+  }
+  return null;
+}
+
 function hotelQualityScore(
   el: OsmElement,
   geo: GeoResult,
@@ -962,11 +1108,17 @@ function hotelFallbackQueries(geo: GeoResult): string[] {
 
 async function searchHotelsNominatimFallback(
   geo: GeoResult,
-  budgetInr?: number,
+  options?: HotelSearchOptions,
 ): Promise<HotelOffer[]> {
   const offers: HotelOffer[] = [];
   const seen = new Set<string>();
   let hitCount = 0;
+  const destinationImageUrl = geo.imageUrl ?? knownDestinationImageUrl([
+    geo.displayName,
+    geo.name,
+    geo.country,
+  ]);
+  let imageSearches = 0;
 
   for (const query of hotelFallbackQueries(geo)) {
     const url = new URL(`${NOMINATIM}/search`);
@@ -1010,12 +1162,25 @@ async function searchHotelsNominatimFallback(
       const distanceKm = Math.round(haversineKm(geo.lat, geo.lon, lat, lon) * 10) / 10;
       const tags = hit.extratags ?? {};
       const stars = parseStars(tags);
+      let imageUrl = osmImageFromTags(tags);
+      if (!imageUrl && tags.wikidata) {
+        imageUrl = await wikidataImageUrl(tags.wikidata);
+      }
+      if (!imageUrl && imageSearches < 2) {
+        imageSearches += 1;
+        imageUrl = await hotelImageFromSearch(name, geo);
+      }
+      const imageSource = imageUrl ? 'hotel' : destinationImageUrl ? 'destination' : null;
       offers.push({
         id: `nominatim/${lat.toFixed(6)},${lon.toFixed(6)}/${index}`,
         name,
         rating: stars,
-        pricePerNightUsd: estimateHotelPriceInr(stars, budgetInr),
-        imageUrl: osmImageFromTags(tags),
+        pricePerNightUsd: estimateHotelPriceInr(stars, options, null, {
+          name,
+          tourism: tags.tourism,
+          distanceKm,
+        }),
+        imageUrl: imageUrl ?? destinationImageUrl,
         source: 'osm' as const,
         raw: {
           source: 'nominatim-osm',
@@ -1025,8 +1190,10 @@ async function searchHotelsNominatimFallback(
           fallbackQuery: query,
           coord: { lat, lon },
           osm: { tags },
+          destinationImageUrl,
+          imageSource,
           priceSource: 'estimate',
-          priceNote: 'Estimated nightly rate — OSM has no live room prices for this property',
+          priceNote: 'Estimated nightly rate from property type, location, and trip budget - not a live booking price',
         },
       });
     }
@@ -1054,11 +1221,18 @@ async function searchHotelsNominatimFallback(
 /** Real hotels from OpenStreetMap — names, addresses, images; nightly INR is estimated when OSM has no rate. */
 export async function searchHotelsOsm(
   geo: GeoResult,
-  budgetInr?: number,
+  optionsOrBudget?: HotelSearchOptions | number,
 ): Promise<{ offers: HotelOffer[]; error?: string }> {
+  const options = normalizeHotelSearchOptions(optionsOrBudget);
+  const budgetInr = options.budgetInr;
   let named: OsmElement[] = [];
   let hotelGeo = geo;
   let searchRadiusMeters = HOTEL_SEARCH_RADII_METERS[0];
+  let destinationImageUrl = geo.imageUrl ?? knownDestinationImageUrl([
+    geo.displayName,
+    geo.name,
+    geo.country,
+  ]);
 
   const searchAround = async (candidateGeo: GeoResult) => {
     const finalRadius = HOTEL_SEARCH_RADII_METERS[HOTEL_SEARCH_RADII_METERS.length - 1];
@@ -1109,7 +1283,7 @@ export async function searchHotelsOsm(
       searchedFrom: geo.displayName,
       error: e instanceof Error ? e.message : String(e),
     });
-    const fallbackOffers = await searchHotelsNominatimFallback(geo, budgetInr);
+    const fallbackOffers = await searchHotelsNominatimFallback(geo, options);
     if (fallbackOffers.length) {
       return { offers: fallbackOffers };
     }
@@ -1127,7 +1301,7 @@ export async function searchHotelsOsm(
       fallbackGeos.push(...anchors);
     }
     for (const fallbackGeo of fallbackGeos) {
-      const fallbackOffers = await searchHotelsNominatimFallback(fallbackGeo, budgetInr);
+      const fallbackOffers = await searchHotelsNominatimFallback(fallbackGeo, options);
       if (fallbackOffers.length) {
         return { offers: fallbackOffers };
       }
@@ -1147,6 +1321,13 @@ export async function searchHotelsOsm(
 
   const offers: HotelOffer[] = [];
   let wikidataFetches = 0;
+  let imageSearches = 0;
+
+  destinationImageUrl ??= hotelGeo.imageUrl ?? knownDestinationImageUrl([
+    hotelGeo.displayName,
+    hotelGeo.name,
+    hotelGeo.country,
+  ]);
 
   for (const el of named) {
     const tags = el.tags ?? {};
@@ -1166,17 +1347,26 @@ export async function searchHotelsOsm(
         : hotelGeo.displayName);
 
     const osmFeeInr = parseOsmFeeInr(tags);
-    const pricePerNight = estimateHotelPriceInr(stars, budgetInr, osmFeeInr);
     const distanceKm = coord
       ? Math.round(haversineKm(hotelGeo.lat, hotelGeo.lon, coord.lat, coord.lon) * 10) / 10
       : null;
+    if (!imageUrl && imageSearches < 3) {
+      imageSearches += 1;
+      imageUrl = await hotelImageFromSearch(name, hotelGeo);
+    }
+    const imageSource = imageUrl ? 'hotel' : destinationImageUrl ? 'destination' : null;
+    const pricePerNight = estimateHotelPriceInr(stars, options, osmFeeInr, {
+      name,
+      tourism: tags.tourism,
+      distanceKm,
+    });
 
     offers.push({
       id: `${el.type}/${el.id}`,
       name,
       rating: stars,
       pricePerNightUsd: pricePerNight,
-      imageUrl,
+      imageUrl: imageUrl ?? destinationImageUrl,
       source: 'osm',
       raw: {
         source: 'osm',
@@ -1186,10 +1376,12 @@ export async function searchHotelsOsm(
         brand: tags.brand ?? null,
         tourism: tags.tourism ?? null,
         distanceKm,
+        destinationImageUrl,
+        imageSource,
         priceSource: osmFeeInr != null ? 'osm_fee' : 'estimate',
         priceNote: osmFeeInr != null
           ? 'Nightly rate from OpenStreetMap fee tag'
-          : 'Estimated nightly rate — OSM has no live room prices for this property',
+          : 'Estimated nightly rate from property type, location, and trip budget - not a live booking price',
         searchRadiusMeters,
         searchedFrom: hotelGeo.displayName,
         osm: { type: el.type, id: el.id, tags },
@@ -1507,7 +1699,11 @@ export async function buildTravelContext(input: {
     }
 
     if (includeHotels) {
-      const hotels = await searchHotelsOsm(geo, input.budgetInr);
+      const hotels = await searchHotelsOsm(geo, {
+        budgetInr: input.budgetInr,
+        tripDays: tripDaysFromDates(input.startDate, input.endDate),
+        travelers: input.travelers,
+      });
       if (hotels.offers.length) {
         parts.push(
           'Hotels (OpenStreetMap — real names/addresses; nightly INR estimated): ' +

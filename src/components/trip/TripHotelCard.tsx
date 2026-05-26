@@ -7,6 +7,7 @@ import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { formatInrPerNight } from '@/utils/currency'
 import {
   hotelAddress,
+  hotelFallbackImageUrl,
   hotelPriceLabel,
   hotelSourceLabel,
   hotelWebsite,
@@ -24,11 +25,11 @@ export function TripHotelCard({ hotel, compact }: Props) {
   const [imageBroken, setImageBroken] = useState(false)
   const address = hotelAddress(hotel.raw)
   const website = hotelWebsite(hotel.raw)
-  const imageUri = normalizeHotelImageUrl(hotel.image_url)
+  const imageUri = normalizeHotelImageUrl(hotel.image_url) ?? hotelFallbackImageUrl(hotel.raw)
   const showImage = imageUri && !imageBroken
 
   return (
-    <Card className="mb-3 p-0 overflow-hidden" padded={false}>
+    <Card className="mb-4 p-0 overflow-hidden" padded={false}>
       {showImage ? (
         <Image
           source={{ uri: imageUri }}
@@ -40,21 +41,21 @@ export function TripHotelCard({ hotel, compact }: Props) {
         <View
           className={`w-full ${compact ? 'h-28' : 'h-36'} bg-slate-200/80 dark:bg-slate-800 items-center justify-center`}
         >
-          <Text className={`${theme.textMuted} text-sm`}>No photo on OSM</Text>
+          <Text className={`${theme.textMuted} text-sm`}>Photo unavailable</Text>
         </View>
       )}
-      <View className="p-4">
+      <View className="px-4 py-3">
         <Text className={`${theme.text} ${compact ? 'text-base' : 'text-lg'} font-bold`}>
           {hotel.name}
         </Text>
         {hotel.rating != null ? (
-          <View className="flex-row items-center mt-2 gap-1">
+          <View className="flex-row items-center mt-2 gap-1.5">
             <Star size={14} color="#F59E0B" fill="#F59E0B" />
             <Text className={`${theme.textMuted} text-sm`}>{hotel.rating} stars</Text>
           </View>
         ) : null}
         {address ? (
-          <View className="flex-row items-start mt-2 gap-1">
+          <View className="flex-row items-start mt-2 gap-1.5">
             <MapPin size={14} color="#94A3B8" style={{ marginTop: 2 }} />
             <Text className={`${theme.textMuted} text-xs flex-1`} numberOfLines={compact ? 2 : undefined}>
               {address}
@@ -62,17 +63,17 @@ export function TripHotelCard({ hotel, compact }: Props) {
           </View>
         ) : null}
         {!compact ? (
-          <Text className={`${theme.textMuted} text-xs mt-2`}>
+          <Text className={`${theme.textMuted} text-xs mt-3`}>
             {hotelSourceLabel(hotel.raw)} · {hotelPriceLabel(hotel.raw)}
           </Text>
         ) : null}
-        <Text className="text-yellow-600 font-bold mt-1">
+        <Text className="text-yellow-600 font-bold mt-2">
           {hotel.price_per_night_usd != null
             ? formatInrPerNight(hotel.price_per_night_usd)
             : 'Price on request'}
         </Text>
         {website && !compact ? (
-          <Pressable onPress={() => void Linking.openURL(website)} className="mt-2">
+          <Pressable onPress={() => void Linking.openURL(website)} className="mt-3">
             <Text className="text-yellow-600 text-sm font-semibold">Visit website</Text>
           </Pressable>
         ) : null}
