@@ -7,11 +7,10 @@ import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { formatInrPerNight } from '@/utils/currency'
 import {
   hotelAddress,
-  hotelFallbackImageUrl,
+  hotelImageCandidates,
   hotelPriceLabel,
   hotelSourceLabel,
   hotelWebsite,
-  normalizeHotelImageUrl,
 } from '@/utils/hotel-display'
 import type { TripHotelRow } from '@/types/database'
 
@@ -23,19 +22,28 @@ type Props = {
 export function TripHotelCard({ hotel, compact }: Props) {
   const theme = useThemedStyles()
   const [imageBroken, setImageBroken] = useState(false)
+  const [imageIndex, setImageIndex] = useState(0)
   const address = hotelAddress(hotel.raw)
   const website = hotelWebsite(hotel.raw)
-  const imageUri = normalizeHotelImageUrl(hotel.image_url) ?? hotelFallbackImageUrl(hotel.raw)
+  const imageCandidates = hotelImageCandidates(hotel.image_url, hotel.raw, hotel.name)
+  const imageUri = imageCandidates[imageIndex] ?? null
   const showImage = imageUri && !imageBroken
 
   return (
     <Card className="mb-4 p-0 overflow-hidden" padded={false}>
       {showImage ? (
         <Image
+          key={imageUri}
           source={{ uri: imageUri }}
           className={compact ? 'w-full h-28' : 'w-full h-36'}
           resizeMode="cover"
-          onError={() => setImageBroken(true)}
+          onError={() => {
+            if (imageIndex < imageCandidates.length - 1) {
+              setImageIndex((current) => current + 1)
+            } else {
+              setImageBroken(true)
+            }
+          }}
         />
       ) : (
         <View

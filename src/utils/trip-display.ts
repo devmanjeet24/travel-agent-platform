@@ -73,6 +73,15 @@ function destinationCandidates(trip: Pick<TripRow, 'destination' | 'country'>) {
     .filter((value): value is string => Boolean(value))
 }
 
+function destinationImageOverride(trip: Pick<TripRow, 'destination' | 'country'>) {
+  const candidates = destinationCandidates(trip)
+  for (const candidate of candidates) {
+    const override = destinationImageOverrides[normalizeDestinationKey(candidate)]
+    if (override) return override
+  }
+  return null
+}
+
 function safeParseUrl(value: string) {
   try {
     return new URL(value)
@@ -122,16 +131,22 @@ export function needsTripDestinationSync(
 }
 
 export function tripImageUri(trip: Pick<TripRow, 'image_url' | 'destination' | 'country'>) {
+  const override = destinationImageOverride(trip)
+  if (override) return override
+
   const stored = trip.image_url?.trim()
   if (stored && !isPlaceholderTripImageUrl(stored)) return stored
 
-  const candidates = destinationCandidates(trip)
-  for (const candidate of candidates) {
-    const override = destinationImageOverrides[normalizeDestinationKey(candidate)]
-    if (override) return override
-  }
-
   return defaultTripImage
+}
+
+export function replacementTripImageUri(
+  trip: Pick<TripRow, 'image_url' | 'destination' | 'country'>,
+) {
+  const override = destinationImageOverride(trip)
+  if (!override) return null
+  const stored = trip.image_url?.trim()
+  return stored === override ? null : override
 }
 
 export function isGeneratedTripTitle(title: string, destination: string) {

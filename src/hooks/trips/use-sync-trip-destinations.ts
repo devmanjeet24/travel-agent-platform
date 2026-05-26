@@ -1,19 +1,46 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
+import { updateTripImageUrl } from '@/services/trips/trip-api'
 import { syncTripDestination } from '@/services/travel/travel-api'
 import { tripKeys } from '@/services/trips/trip-keys'
 import type { TripRow } from '@/types/database'
-import { needsTripDestinationSync } from '@/utils/trip-display'
+import { needsTripDestinationSync, replacementTripImageUri } from '@/utils/trip-display'
 
 export function useSyncTripDestinations(trips: TripRow[] | undefined) {
   const queryClient = useQueryClient()
   const destinationSyncAttempted = useRef(new Set<string>())
+  const imageReplacementAttempted = useRef(new Set<string>())
 
   useEffect(() => {
     if (!trips?.length) return
 
     let cancelled = false
+    const imageReplacements = trips
+      .map((trip) => ({ trip, imageUrl: replacementTripImageUri(trip) }))
+      .filter(
+        (item): item is { trip: TripRow; imageUrl: string } =>
+          Boolean(item.imageUrl) &&
+          !imageReplacementAttempted.current.has(`${item.trip.id}:${item.imageUrl}`),
+      )
+      .slice(0, 5)
+
+    for (const { trip, imageUrl } of imageReplacements) {
+      imageReplacementAttempted.current.add(`${trip.id}:${imageUrl}`)
+      void updateTripImageUrl(trip.id, imageUrl)
+        .then(() => {
+          if (!cancelled) {
+            void queryClient.invalidateQueries({ queryKey: tripKeys.all })
+          }
+        })
+        .catch((error) => {
+          console.warn('[useSyncTripDestinations] destination image replacement failed', {
+            tripId: trip.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+    }
+
     const candidates = trips
       .filter((trip) => needsTripDestinationSync(trip))
       .filter((trip) => !destinationSyncAttempted.current.has(trip.id))

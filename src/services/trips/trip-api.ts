@@ -157,6 +157,18 @@ export async function updateTrip(
   return data as TripRow;
 }
 
+export async function updateTripImageUrl(id: string, imageUrl: string): Promise<void> {
+  const supabase = getSupabaseOrNull();
+  if (!supabase) throw new Error('Supabase not configured');
+
+  const { error } = await supabase
+    .from('trips')
+    .update({ image_url: imageUrl })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+}
+
 export async function fetchItinerary(tripId: string): Promise<
   Array<ItineraryDayRow & { activities: ItineraryActivityRow[] }>
 > {

@@ -44,6 +44,7 @@ export function TripCard({
     <Card onPress={onPress} className="mb-4" padded={false}>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Image
+          key={imageSource}
           source={{ uri: imageSource }}
           style={{
             width: 88,

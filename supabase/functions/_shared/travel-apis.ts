@@ -1180,7 +1180,7 @@ async function searchHotelsNominatimFallback(
           tourism: tags.tourism,
           distanceKm,
         }),
-        imageUrl: imageUrl ?? destinationImageUrl,
+        imageUrl,
         source: 'osm' as const,
         raw: {
           source: 'nominatim-osm',
@@ -1366,7 +1366,7 @@ export async function searchHotelsOsm(
       name,
       rating: stars,
       pricePerNightUsd: pricePerNight,
-      imageUrl: imageUrl ?? destinationImageUrl,
+      imageUrl,
       source: 'osm',
       raw: {
         source: 'osm',

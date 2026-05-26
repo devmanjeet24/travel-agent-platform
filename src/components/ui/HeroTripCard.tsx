@@ -37,6 +37,7 @@ export function HeroTripCard({ imageUri, eyebrow, title, dates, onPress }: Props
       ]}
     >
       <Image
+        key={imageSource}
         source={{ uri: imageSource }}
         style={{ width: '100%', height: '100%' }}
         resizeMode="cover"
