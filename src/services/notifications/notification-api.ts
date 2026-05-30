@@ -28,12 +28,16 @@ export async function deleteNotification(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-export async function createTripNotifications(params: {
+export type CreateTripNotificationsParams = {
   userId: string;
   tripId: string;
   destination: string;
   startDate: string | null;
-}): Promise<void> {
+};
+
+export async function createTripNotifications(
+  params: CreateTripNotificationsParams,
+): Promise<void> {
   const supabase = getSupabaseOrNull();
   if (!supabase) return;
 

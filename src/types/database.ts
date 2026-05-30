@@ -32,6 +32,16 @@ export type ProfileRow = {
   offline_sync_enabled: boolean;
 };
 
+export type DevicePushTokenRow = {
+  id: string;
+  user_id: string;
+  expo_push_token: string;
+  platform: 'ios' | 'android' | 'web' | 'unknown';
+  device_name: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ChatConversationRow = {
   id: string;
   user_id: string;
@@ -102,7 +112,7 @@ export type TripFlightRow = {
   route: string | null;
   depart_time: string | null;
   arrive_time: string | null;
-  /** Fare in INR. */
+  /** Fare in INR when available; Duffel's original currency is preserved in raw. */
   price_usd: number | null;
   stops: string | null;
   raw?: Record<string, unknown> | null;

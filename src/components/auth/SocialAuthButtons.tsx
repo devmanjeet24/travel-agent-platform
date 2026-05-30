@@ -8,14 +8,20 @@ import { cardShadow, radii } from '@/lib/ui-styles'
 
 interface Props {
   onError?: (message: string) => void
+  /** Disable while email/password auth is in flight. */
+  disabled?: boolean
 }
 
-export function SocialAuthButtons({ onError }: Props) {
+export function SocialAuthButtons({ onError, disabled }: Props) {
   const router = useRouter()
   const theme = useThemedStyles()
   const oauth = useOAuthSignInMutation()
+  const loading = oauth.isPending
+  const loadingProvider = oauth.variables
+  const isDisabled = disabled || loading
 
   const handleOAuth = (provider: 'google' | 'apple') => {
+    if (isDisabled) return
     oauth.mutate(provider, {
       onSuccess: ({ error }) => {
         if (error) {
@@ -26,9 +32,6 @@ export function SocialAuthButtons({ onError }: Props) {
       },
     })
   }
-
-  const loading = oauth.isPending
-  const loadingProvider = oauth.variables
 
   return (
     <View style={{ gap: 12, marginTop: 8 }}>
@@ -45,7 +48,8 @@ export function SocialAuthButtons({ onError }: Props) {
 
       <Pressable
         onPress={() => handleOAuth('google')}
-        disabled={loading}
+        disabled={isDisabled}
+        accessibilityState={{ disabled: isDisabled }}
         style={[
           {
             flexDirection: 'row',
@@ -58,6 +62,7 @@ export function SocialAuthButtons({ onError }: Props) {
             borderRadius: radii.pill,
             minHeight: 52,
             paddingHorizontal: 20,
+            opacity: isDisabled && !loading ? 0.6 : 1,
           },
           cardShadow(theme.isDark, false),
         ]}
@@ -90,7 +95,8 @@ export function SocialAuthButtons({ onError }: Props) {
 
       <Pressable
         onPress={() => handleOAuth('apple')}
-        disabled={loading}
+        disabled={isDisabled}
+        accessibilityState={{ disabled: isDisabled }}
         style={[
           {
             flexDirection: 'row',
@@ -101,6 +107,7 @@ export function SocialAuthButtons({ onError }: Props) {
             borderRadius: radii.pill,
             minHeight: 52,
             paddingHorizontal: 20,
+            opacity: isDisabled && !loading ? 0.6 : 1,
           },
           cardShadow(theme.isDark, false),
         ]}

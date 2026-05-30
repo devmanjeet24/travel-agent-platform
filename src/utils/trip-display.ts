@@ -56,20 +56,32 @@ const destinationImageOverrides: Record<string, string> = {
 }
 
 function normalizeDestinationKey(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
+  const lower = value.trim().toLowerCase()
+  if (!lower) return ''
+  const normalize = (lower as string).normalize
+  if (typeof normalize !== 'function') return lower
+
+  let normalized = lower
+  try {
+    normalized = normalize.call(lower, 'NFKD')
+  } catch {
+    normalized = lower
+  }
+
+  return normalized.replace(/[\u0300-\u036f]/g, '')
+}
+
+function safeText(value: string | null | undefined) {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 function destinationCandidates(trip: Pick<TripRow, 'destination' | 'country'>) {
-  const destination = trip.destination.trim()
+  const destination = safeText(trip.destination)
   const destinationParts = destination
     .split(',')
     .map((part) => part.trim())
     .filter(Boolean)
-  return [destinationParts[0], ...destinationParts.slice(1), destination, trip.country?.trim()]
+  return [destinationParts[0], ...destinationParts.slice(1), destination, safeText(trip.country)]
     .filter((value): value is string => Boolean(value))
 }
 
@@ -121,8 +133,9 @@ export function needsTripDestinationSync(
     'image_url' | 'destination' | 'destination_lat' | 'destination_lon' | 'country'
   >,
 ) {
+  const destination = safeText(trip.destination)
   return (
-    Boolean(trip.destination.trim()) &&
+    Boolean(destination) &&
     (isPlaceholderTripImageUrl(trip.image_url) ||
       trip.destination_lat == null ||
       trip.destination_lon == null ||
@@ -162,8 +175,8 @@ export function isGeneratedTripTitle(title: string, destination: string) {
 }
 
 export function tripCardLabels(trip: TripRow) {
-  const title = trip.title.trim()
-  const destination = trip.destination.trim()
+  const title = safeText(trip.title)
+  const destination = safeText(trip.destination)
   const displayTitle =
     destination && isGeneratedTripTitle(title, destination)
       ? destination

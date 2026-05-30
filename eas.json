@@ -8,11 +8,17 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "environment": "development"
+      "environment": "development",
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
       "environment": "preview",
+      "autoIncrement": true,
+      "channel": "preview",
+      "env": {
+        "NODE_ENV": "production"
+      },
       "android": {
         "buildType": "apk"
       }
@@ -27,6 +33,8 @@
     "production-apk": {
       "extends": "production",
       "distribution": "internal",
+      "autoIncrement": true,
+      "channel": "production",
       "android": {
         "buildType": "apk"
       }

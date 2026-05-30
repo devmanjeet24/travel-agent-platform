@@ -1,24 +1,56 @@
-/** Design tokens — light sky travel palette. */
+/** Design tokens — premium travel palette (light + dark via useThemedStyles). */
 
 export const brand = {
-  primary: '#38BDF8',
-  primaryDark: '#0EA5E9',
-  primaryLight: '#E0F2FE',
-  accent: '#06B6D4',
+  primary: '#2563EB',
+  primaryDark: '#1D4ED8',
+  primaryLight: '#EFF6FF',
+  accent: '#6366F1',
+  accentMuted: '#EEF2FF',
   onPrimary: '#FFFFFF',
   onAccent: '#FFFFFF',
-  sky: '#F0F9FF',
-  cyan: '#CFFAFE',
+  sky: '#F8FAFC',
+  surface: '#FFFFFF',
+  cyan: '#06B6D4',
   success: '#10B981',
+  successMuted: '#D1FAE5',
   warning: '#F59E0B',
+  warningMuted: '#FEF3C7',
   danger: '#EF4444',
+  dangerMuted: '#FEE2E2',
+  /** AI / sparkle highlights */
+  ai: '#7C3AED',
+  aiMuted: '#EDE9FE',
+} as const
+
+/** 4px base spacing scale */
+export const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  '2xl': 28,
+  '3xl': 36,
+  '4xl': 44,
+  '5xl': 52,
 } as const
 
 export const layout = {
   maxContentWidth: 1120,
-  screenPadding: 24,
+  screenPadding: 20,
   sectionGap: 32,
+  cardPadding: 16,
+  touchTarget: 48,
 } as const
+
+/** Home discovery categories — tap opens AI Chat (same flow as inspiration banners). */
+export const discoveryCategories = [
+  { id: 'all', label: 'All', icon: 'Globe' as const },
+  { id: 'beach', label: 'Beach', icon: 'Waves' as const },
+  { id: 'mountains', label: 'Mountains', icon: 'Mountain' as const },
+  { id: 'city', label: 'City', icon: 'Building2' as const },
+  { id: 'culture', label: 'Culture', icon: 'Landmark' as const },
+] as const
 
 export const quickActions = [
   {
@@ -100,6 +132,53 @@ export const travelBanners = [
     cta: 'Explore cities',
   },
 ] as const
+
+/** Curated picks for “Recommended” — distinct from featured carousel order. */
+export const recommendedPlaces = [
+  {
+    id: 'maldives',
+    name: 'Maldives',
+    country: 'South Asia',
+    tagline: 'Overwater villas & reefs',
+    image:
+      'https://images.unsplash.com/photo-1514282401047-d79a71a590e8?w=600&q=80',
+  },
+  {
+    id: 'swiss',
+    name: 'Swiss Alps',
+    country: 'Switzerland',
+    tagline: 'Peaks & scenic trains',
+    image:
+      'https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=600&q=80',
+  },
+  {
+    id: 'dubai',
+    name: 'Dubai',
+    country: 'UAE',
+    tagline: 'Skyline & desert nights',
+    image:
+      'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80',
+  },
+] as const
+
+/** Same catalogue as featured, reordered for a second horizontal rail. */
+export const trendingDestinations: readonly (typeof featuredDestinations)[number][] = [
+  featuredDestinations[2],
+  featuredDestinations[0],
+  featuredDestinations[3],
+  featuredDestinations[1],
+]
+
+/** Combined explore rail for Home — one carousel instead of three duplicate sections. */
+export const exploreDestinations = [
+  ...featuredDestinations,
+  ...trendingDestinations.filter((d) => !featuredDestinations.some((f) => f.id === d.id)),
+  ...recommendedPlaces.filter(
+    (d) =>
+      !featuredDestinations.some((f) => f.id === d.id) &&
+      !trendingDestinations.some((t) => t.id === d.id),
+  ),
+]
 
 /** Default trip hero when no custom image is set. */
 export const defaultTripImage =

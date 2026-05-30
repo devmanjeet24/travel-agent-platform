@@ -57,7 +57,7 @@ export default function HotelsScreen() {
   return (
     <TripScreenWrapper className={theme.bg}>
       <Button
-        title={hotelsSyncing ? 'Searching OpenStreetMap hotels…' : 'Refresh hotels'}
+        title={hotelsSyncing ? 'Searching hotel providers…' : 'Refresh hotels'}
         variant="outline"
         onPress={refresh}
         disabled={hotelsSyncing}
@@ -75,7 +75,7 @@ export default function HotelsScreen() {
         </Text>
       ) : !hotels?.length ? (
         <Text className={`${theme.textMuted} mt-6 text-center`}>
-          No OpenStreetMap hotels found for this destination yet. Tap refresh to search again.
+          No real hotels found for this destination yet. Tap refresh to search again.
         </Text>
       ) : (
         <View className="mt-4">

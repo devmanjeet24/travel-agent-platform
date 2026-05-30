@@ -1,5 +1,8 @@
 import { useCallback } from 'react'
 import { ActivityIndicator, Text, View } from 'react-native'
+
+import { brand, spacing } from '@/constants/design'
+import { typography } from '@/constants/typography'
 import { useFocusEffect } from '@react-navigation/native'
 import {
   Bell,
@@ -12,7 +15,7 @@ import type { LucideIcon } from 'lucide-react-native'
 
 import { SwipeableNotificationRow } from '@/components/notifications/SwipeableNotificationRow'
 import { Button } from '@/components/ui/Button'
-import { ScreenHeader } from '@/components/ui/ScreenHeader'
+import { PageHeader } from '@/components/ui/PageHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import {
   useDismissNotificationMutation,
@@ -20,7 +23,6 @@ import {
   useNotificationsQuery,
 } from '@/hooks/notifications/use-notifications-query'
 import type { NotificationRow } from '@/types/database'
-import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 const iconMap: Record<NotificationRow['type'], LucideIcon> = {
@@ -51,21 +53,28 @@ export default function NotificationsScreen() {
   )
 
   return (
-    <ScreenWrapper scroll tabInset>
-      <ScreenHeader
-        eyebrow="Inbox"
-        title="Notifications"
+    <ScreenWrapper scroll tabInset scrollFlexGrow={false} subtleBackground>
+      <PageHeader
+        large
+        title="Alerts"
         subtitle="Trip reminders and updates from your account"
       />
 
       {isLoading ? (
-        <ActivityIndicator className="mt-12" color={brand.primaryDark} />
+        <ActivityIndicator style={{ marginTop: spacing['3xl'] }} color={brand.primaryDark} />
       ) : isError ? (
-        <View className="mt-12 gap-3">
-          <Text className={`${theme.text} text-center font-semibold`}>
+        <View style={{ marginTop: spacing['3xl'], gap: spacing.md }}>
+          <Text style={{ ...typography.h3, color: theme.colors.text, textAlign: 'center' }}>
             Could not load notifications
           </Text>
-          <Text className={`${theme.textMuted} text-center leading-5`}>
+          <Text
+            style={{
+              ...typography.bodySm,
+              color: theme.colors.textMuted,
+              textAlign: 'center',
+              lineHeight: 22,
+            }}
+          >
             {error instanceof Error ? error.message : 'Please try again.'}
           </Text>
           <Button
@@ -76,7 +85,15 @@ export default function NotificationsScreen() {
           />
         </View>
       ) : !notifications?.length ? (
-        <Text className={`${theme.textMuted} text-center mt-12`}>
+        <Text
+          style={{
+            ...typography.body,
+            color: theme.colors.textMuted,
+            textAlign: 'center',
+            marginTop: spacing['3xl'],
+            lineHeight: 22,
+          }}
+        >
           No notifications yet. Create a trip to receive reminders.
         </Text>
       ) : (

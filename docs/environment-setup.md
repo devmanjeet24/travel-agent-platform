@@ -4,7 +4,38 @@
 
 1. Copy `.env.example` to `.env`.
 2. Add Supabase URL and anon key from [Supabase](https://supabase.com) → **Settings → API**.
-3. Restart Expo: `npx expo start -c`.
+3. Restart Expo: `npm run start:clear` (uses a larger Node heap; avoids “JavaScript heap out of memory” on large bundles).
+
+## Dev server: `JavaScript heap out of memory` (`npx expo start`)
+
+Metro/Expo CLI runs in **Node**. The default heap is often too small for this project’s bundle graph on an 8GB Mac. **`npm start` / `npm run start:clear` / `npm run start:tunnel`** set `NODE_OPTIONS=--max-old-space-size=8192`. If you still OOM, close other apps or run `npm run start:clear` once after `watchman watch-del-all` (if you use Watchman).
+
+## Expo Go: `Failed to download remote update` (Android)
+
+That message is **Expo Go failing to download your JavaScript bundle** from the dev machine (it is not the same as EAS Update / OTA). Common causes:
+
+| Cause | What to try |
+|--------|-------------|
+| Phone and computer not reachable to each other | Same Wi‑Fi (not guest/AP isolation), or run `npx expo start --tunnel` (or `npm run start:tunnel`). |
+| VPN / corporate / “public” Wi‑Fi | Disable VPN; on Windows set the network to **Private** and allow **Node.js** through the firewall for private networks. |
+| Wrong interface / IP in the QR URL | In the Expo CLI terminal, switch connection type (LAN ↔ Tunnel) and scan again. |
+| Stale cache | `npx expo start -c`. |
+| SDK mismatch | Update **Expo Go** from the store so its SDK matches the project (`expo` in `package.json`, e.g. **54**). |
+
+If you use a **development build** (`expo-dev-client`), open the project with that app, not store Expo Go.
+
+## APK: “Failed to download remote update” or default Expo UI
+
+That screen means the **JavaScript bundle did not load** (not a styling bug). Common causes:
+
+| Cause | Fix |
+|--------|-----|
+| Old APK built before config fixes | **Rebuild** after pulling latest `app.json` (see below). Uninstall the old APK first. |
+| EAS Update blocking startup | `app.json` sets `updates.checkAutomatically` to `ON_ERROR_RECOVERY` and `fallbackToCacheTimeout: 0` so the **embedded** bundle runs immediately. |
+| Missing `EXPO_PUBLIC_*` on EAS | Run `npm run eas:env:preview` or set vars in the Expo dashboard for the build profile. |
+| React Compiler + Expo Router crash | `experiments.reactCompiler` is **disabled** — do not re-enable until Expo Router supports frozen components. |
+
+After changing `app.json`, always create a **new** APK (`npm run build:android:apk`). Hot reload does not apply to installed APKs.
 
 ## Client variables (`.env`)
 
@@ -32,11 +63,11 @@ Maps are **100% free/open-source** — no Google Maps SDK, no billing, no cloud 
 
 | Feature | Service |
 |---------|---------|
-| Map preview | [OSM static map](https://staticmap.openstreetmap.de/) (tap opens openstreetmap.org) |
-| Turn-by-turn / pins | External links to [openstreetmap.org](https://www.openstreetmap.org) |
+| Map preview | CARTO/OSM tile template via `EXPO_PUBLIC_MAP_TILE_URL` |
+| Pins and route preview | In-app SVG overlays on the OSM/CARTO tile preview |
 | Route distance & time | [OSRM](https://project-osrm.org/) (`EXPO_PUBLIC_OSRM_BASE_URL`, optional) |
 
-Works the same on **iOS, Android APK, and web** — no native MapView, so no Android crash risk.
+Works the same on **iOS, Android APK, and web** — no native MapView, so no Android Google Maps key requirement.
 
 Respect [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/) if you self-host tiles later.
 
@@ -81,6 +112,8 @@ Optional: copy the same vars for `development` if you use `eas build --profile d
 | `used its Android builds from the Free plan` | Monthly EAS quota | Wait for reset (shown in CLI), [upgrade plan](https://expo.dev/accounts/saurabhkhatri2015/settings/billing), or `eas build --platform android --profile preview --local` (needs Android SDK). |
 | `EAS_BUILD_UNKNOWN_GRADLE_ERROR` | Often stale local `android/` on the builder | Exclude `android/` from upload and rebuild. |
 | `No space left on device` (local Gradle) | Mac disk full during `mergeReleaseNativeLibs` / dex | Run `npm run clean:android:global`, empty Trash, ensure **8+ GiB** free, then `npm run build:android:apk:gradle` again. |
+| `Metaspace` / `compileReleaseKotlin FAILED` (local EAS) | Gradle JVM ran out of metaspace on an 8GB Mac | Close Android Studio, run `npm run clean:android:global`, then `npm run build:android:apk:local` (project sets 4GB heap / 1GB metaspace). Or use `npm run build:android:apk:gradle`. |
+| `used its Android builds from the Free plan` (cloud EAS) | Monthly free Android build quota used | Wait for reset (date shown in CLI), upgrade billing, or `npm run build:android:apk:local` / `npm run build:android:apk:gradle` (no cloud quota). |
 
 ### Build commands
 

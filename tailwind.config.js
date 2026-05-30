@@ -6,17 +6,23 @@ module.exports = {
     extend: {
       colors: {
         brand: {
-          primary: '#38BDF8',
-          dark: '#0EA5E9',
-          accent: '#06B6D4',
-          sky: '#F0F9FF',
+          primary: '#2563EB',
+          dark: '#1D4ED8',
+          accent: '#6366F1',
+          ai: '#7C3AED',
+          sky: '#FAFBFC',
+          surface: '#FFFFFF',
         },
       },
       borderRadius: {
-        '4xl': '2rem',
-        '5xl': '2.5rem',
+        '4xl': '1.5rem',
+        '5xl': '1.75rem',
+      },
+      spacing: {
+        18: '4.5rem',
+        22: '5.5rem',
       },
     },
   },
   plugins: [],
-};
+}

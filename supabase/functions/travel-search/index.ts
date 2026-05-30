@@ -1,7 +1,11 @@
 import { handleOptions, jsonResponse } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { searchFlightsDuffel } from '../_shared/duffel-api.ts';
+import { searchIndianTrains } from '../_shared/indian-rail-api.ts';
+import { searchBusOptions } from '../_shared/bus-api.ts';
 import {
   buildTravelContext,
+  buildPlacesContext,
   fetchWeather,
   geoFromCoordinates,
   geocodeDestination,
@@ -10,6 +14,7 @@ import {
   searchCitySuggestions,
   searchFlightsEstimate,
   searchHotelsOsm,
+  searchPlaces,
 } from '../_shared/travel-apis.ts';
 import {
   analyzeRoute,
@@ -17,13 +22,20 @@ import {
   tripDaysFromDates,
 } from '../_shared/transport-guidance.ts';
 
+function duffelAccessToken(): string | undefined {
+  return Deno.env.get('DUFFEL_ACCESS_TOKEN') ?? Deno.env.get('DUFFEL_API_KEY');
+}
+
 type SearchBody = {
   action?:
     | 'geocode'
     | 'geocode-itinerary'
     | 'weather'
     | 'hotels'
+    | 'places'
     | 'flights'
+    | 'trains'
+    | 'buses'
     | 'context'
     | 'cities'
     | 'route';
@@ -78,9 +90,9 @@ type CachedHotelRow = {
 function isStaleCachedHotel(row: CachedHotelRow): boolean {
   const name = row.name?.trim() ?? '';
   if (/^hotel\s*\d+$/i.test(name)) return true;
-  if (!/^(node|way|relation|nominatim)\//.test(row.external_id ?? '')) return true;
+  if (!/^(node|way|relation|nominatim|liteapi|geoapify)\//.test(row.external_id ?? '')) return true;
   const source = typeof row.raw?.source === 'string' ? row.raw.source : '';
-  return Boolean(source && !['osm', 'openstreetmap', 'nominatim-osm'].includes(source));
+  return Boolean(source && !['liteapi', 'geoapify', 'osm', 'openstreetmap', 'nominatim-osm'].includes(source));
 }
 
 Deno.serve(async (req) => {
@@ -229,7 +241,8 @@ Deno.serve(async (req) => {
         const { error: tripImageError } = await supabase
           .from('trips')
           .update(tripPatch)
-          .eq('id', body.tripId);
+          .eq('id', body.tripId)
+          .eq('user_id', user.id);
         if (tripImageError) {
           console.error('Could not update trip destination geo/image:', tripImageError.message);
         }
@@ -244,15 +257,18 @@ Deno.serve(async (req) => {
           return jsonResponse({ error: deleteError.message }, 500);
         }
         const { error: insertError } = await supabase.from('trip_hotels').insert(
-          result.offers.map((h) => ({
-            trip_id: body.tripId,
-            external_id: h.id,
-            name: h.name,
-            rating: h.rating,
-            price_per_night_usd: h.pricePerNightUsd,
-            image_url: h.imageUrl,
-            raw: { ...h.raw, source: h.source },
-          })),
+          result.offers.map((h) => {
+            const rawSource = typeof h.raw.source === 'string' ? h.raw.source : h.source;
+            return {
+              trip_id: body.tripId,
+              external_id: h.id,
+              name: h.name,
+              rating: h.rating,
+              price_per_night_usd: h.pricePerNightUsd,
+              image_url: h.imageUrl,
+              raw: { ...h.raw, source: rawSource, providerSource: h.source },
+            };
+          }),
         );
         if (insertError) {
           return jsonResponse({ error: insertError.message }, 500);
@@ -283,7 +299,24 @@ Deno.serve(async (req) => {
       return jsonResponse({
         hotels: result.offers,
         error: result.error ?? null,
-        source: 'openstreetmap',
+        source: result.offers[0]?.source ?? 'openstreetmap',
+        geocodedAs: geo.displayName,
+      });
+    }
+
+    if (action === 'places') {
+      const dest = body.destination ?? '';
+      const geo = isValidLatLon(body.lat, body.lon)
+        ? geoFromCoordinates(body.lat!, body.lon!, dest)
+        : await geocodeDestination(dest);
+      if (!geo) {
+        return jsonResponse({ error: 'Destination not found' }, 404);
+      }
+      const result = await searchPlaces(geo, { maxItems: 16 });
+      return jsonResponse({
+        places: result.places,
+        context: buildPlacesContext(result.places),
+        error: result.error ?? null,
         geocodedAs: geo.displayName,
       });
     }
@@ -405,7 +438,13 @@ Deno.serve(async (req) => {
 
       if (!shouldIncludeFlights(route)) {
         if (body.tripId) {
-          await supabase.from('trip_flights').delete().eq('trip_id', body.tripId);
+          const { error: deleteError } = await supabase
+            .from('trip_flights')
+            .delete()
+            .eq('trip_id', body.tripId);
+          if (deleteError) {
+            return jsonResponse({ error: deleteError.message }, 500);
+          }
         }
         return jsonResponse({
           flights: [],
@@ -416,17 +455,33 @@ Deno.serve(async (req) => {
         });
       }
 
-      const result = await searchFlightsEstimate({
-        originGeo,
-        destGeo,
-        departDate: body.departDate,
-        budgetInr,
-      });
+      const token = duffelAccessToken();
+      const result = token
+        ? await searchFlightsDuffel({
+          originGeo,
+          destGeo,
+          departDate: body.departDate,
+          travelers: body.travelers ?? 1,
+          accessToken: token,
+        })
+        : await searchFlightsEstimate({
+          originGeo,
+          destGeo,
+          departDate: body.departDate,
+          budgetInr,
+        });
+      const source = token ? 'duffel' : 'estimate';
 
       if (body.tripId) {
-        await supabase.from('trip_flights').delete().eq('trip_id', body.tripId);
+        const { error: deleteError } = await supabase
+          .from('trip_flights')
+          .delete()
+          .eq('trip_id', body.tripId);
+        if (deleteError) {
+          return jsonResponse({ error: deleteError.message }, 500);
+        }
         if (result.offers.length) {
-          await supabase.from('trip_flights').insert(
+          const { error: insertError } = await supabase.from('trip_flights').insert(
             result.offers.map((f) => ({
               trip_id: body.tripId,
               airline: f.airline,
@@ -438,13 +493,76 @@ Deno.serve(async (req) => {
               raw: { ...f.raw, source: f.source },
             })),
           );
+          if (insertError) {
+            return jsonResponse({ error: insertError.message }, 500);
+          }
         }
       }
 
       return jsonResponse({
         flights: result.offers,
         error: result.error ?? null,
-        source: 'estimate',
+        source,
+        live: source === 'duffel',
+      });
+    }
+
+    if (action === 'trains') {
+      if (!body.origin || !body.destination) {
+        return jsonResponse({ error: 'origin and destination required' }, 400);
+      }
+
+      const originGeo = await geocodeDestination(body.origin);
+      const destGeo = await geocodeDestination(body.destination);
+      if (!originGeo || !destGeo) {
+        return jsonResponse({ error: 'Could not geocode origin or destination' }, 404);
+      }
+
+      const result = await searchIndianTrains({
+        originName: body.origin,
+        destinationName: body.destination,
+        originGeo,
+        destGeo,
+        maxItems: 8,
+      });
+
+      return jsonResponse({
+        trains: result.offers,
+        stations: result.stations ?? null,
+        error: result.error ?? null,
+        note: result.note ?? null,
+        source: result.source,
+        live: result.live,
+      });
+    }
+
+    if (action === 'buses') {
+      if (!body.origin || !body.destination) {
+        return jsonResponse({ error: 'origin and destination required' }, 400);
+      }
+
+      const originGeo = await geocodeDestination(body.origin);
+      const destGeo = await geocodeDestination(body.destination);
+      if (!originGeo || !destGeo) {
+        return jsonResponse({ error: 'Could not geocode origin or destination' }, 404);
+      }
+
+      const result = await searchBusOptions({
+        originName: body.origin,
+        destinationName: body.destination,
+        originGeo,
+        destGeo,
+        departDate: body.departDate ?? body.startDate,
+        travelers: body.travelers ?? 1,
+        maxItems: 8,
+      });
+
+      return jsonResponse({
+        buses: result.offers,
+        error: result.error ?? null,
+        note: result.note ?? null,
+        source: result.source,
+        live: result.live,
       });
     }
 

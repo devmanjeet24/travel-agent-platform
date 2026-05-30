@@ -146,6 +146,9 @@ export function hotelImageCandidates(
 
 export function hotelSourceLabel(raw: unknown): string {
   const r = parseHotelRaw(raw)
+  if (r?.source === 'liteapi') return 'LiteAPI'
+  if (r?.source === 'geoapify') return 'Geoapify'
   if (r?.source === 'osm') return 'OpenStreetMap'
+  if (r?.source === 'nominatim-osm') return 'Nominatim / OSM'
   return 'OpenStreetMap'
 }

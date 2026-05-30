@@ -54,16 +54,21 @@ export async function setProfileAvatarFromLocalUri(params: {
     profileId: profile.id,
   });
 
-  const oldPath = params.previousAvatarUrl
-    ? parseProfileAvatarStoragePath(params.previousAvatarUrl.split('?')[0] ?? '')
+  const savedPath = profile.avatar_url
+    ? parseProfileAvatarStoragePath(profile.avatar_url)
     : null;
-  if (oldPath) {
+  const oldPath = params.previousAvatarUrl
+    ? parseProfileAvatarStoragePath(params.previousAvatarUrl)
+    : null;
+  if (oldPath && oldPath !== savedPath) {
     try {
       await deleteProfileAvatarFiles([oldPath]);
       logProfileAvatar('upload:old-file-deleted', { oldPath });
     } catch (cleanupError) {
       logProfileAvatarError('upload:old-file-cleanup-failed', cleanupError);
     }
+  } else if (oldPath) {
+    logProfileAvatar('upload:old-file-retained', { oldPath });
   }
 
   return { publicUrl, profile };

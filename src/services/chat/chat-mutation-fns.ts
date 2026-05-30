@@ -35,7 +35,7 @@ export async function sendChatMessage(
   });
 
   if (error) {
-    return { reply: null, error: formatChatInvokeError(error, data) };
+    return { reply: null, error: await formatChatInvokeError(error, data) };
   }
 
   const parsed = parseChatReply(data);
@@ -55,6 +55,8 @@ export async function sendChatMessage(
     error: null,
     conversationId: parsed.conversationId,
     warning: parsed.warning,
+    tripId: parsed.tripId,
+    openTripId: parsed.openTripId,
   };
 }
 

@@ -25,7 +25,8 @@ User message (Expo)
        Nominatim (geocode)
        Overpass/OSM (hotel names)
        Distance-based flight estimates
-  → Groq (llama-3.3-70b) streaming reply
+  → Groq (llama-3.1-8b-instant for chat; tools only when needed)
+  → Token usage logged in Edge Function logs (`groq_usage`)
   → Saved to chat_messages when DB tables exist
 ```
 
@@ -48,5 +49,7 @@ Never put `GROQ_API_KEY` in the Expo app.
 |---------|-----|
 | "GROQ_API_KEY is not set" | Add secret in Supabase dashboard |
 | "Chat function not deployed" | `supabase functions deploy chat` |
+| "Edge Function returned a non-2xx status code" | Redeploy `chat` (and `plan-trip` if trip creation is involved), then open **Edge Functions → chat → Logs** for the real error |
 | History not saved | Run SQL migrations (`chat_conversations`, `chat_messages`) |
 | Voice fails | Deploy `transcribe`; allow microphone permission |
+| Rate limit / TPD exceeded | Check Edge logs for `groq_usage`; chat uses 8B and skips tools on simple messages |

@@ -6,8 +6,6 @@ import { useResponsive } from '@/hooks/use-responsive'
 import { useKeyboardBottomInset } from '@/hooks/use-keyboard-bottom-inset'
 import { useTabScreenInsets } from '@/hooks/use-tab-screen-insets'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
-import { isWeb } from '@/lib/ui-styles'
-import { MaxContentWidth } from '@/constants/theme'
 
 type SafeAreaEdge = 'top' | 'bottom' | 'left' | 'right'
 
@@ -15,79 +13,33 @@ interface Props {
   children: ReactNode
   scroll?: boolean
   padded?: boolean
-  className?: string
-  contentContainerClassName?: string
   centered?: boolean
-  /** Add extra bottom padding for tab bar (use on tab stack screens). */
   tabInset?: boolean
-  /** Safe area edges; use without `top` on stack screens that already show a header. */
   edges?: SafeAreaEdge[]
-  /** When scroll=true, grow content so lists scroll on short viewports (default true). */
   scrollFlexGrow?: boolean
-  /** Shift scroll content when the software keyboard is open (default true when scroll). */
   keyboardAvoiding?: boolean
-  /** Extra offset for stack headers / tab bars (iOS KeyboardAvoidingView). */
   keyboardVerticalOffset?: number
-}
-
-function MeshBackground({ isDark, width }: { isDark: boolean; width: number }) {
-  const blob = Math.min(width * 0.75, 280)
-  return (
-    <>
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          top: -blob * 0.4,
-          right: -blob * 0.25,
-          width: blob,
-          height: blob,
-          borderRadius: blob / 2,
-          backgroundColor: isDark ? 'rgba(56,189,248,0.12)' : 'rgba(56,189,248,0.22)',
-        }}
-      />
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          bottom: blob * 0.2,
-          left: -blob * 0.2,
-          width: blob * 0.8,
-          height: blob * 0.8,
-          borderRadius: blob * 0.4,
-          backgroundColor: isDark ? 'rgba(6,182,212,0.08)' : 'rgba(6,182,212,0.1)',
-        }}
-      />
-    </>
-  )
+  subtleBackground?: boolean
 }
 
 export default function ScreenWrapper({
   children,
   scroll = false,
   padded = true,
-  className = '',
-  contentContainerClassName = '',
   centered = false,
   tabInset = false,
   edges = ['top', 'left', 'right'],
-  scrollFlexGrow = true,
+  scrollFlexGrow = false,
   keyboardAvoiding,
   keyboardVerticalOffset = 0,
 }: Props) {
-  const avoidKeyboard = keyboardAvoiding ?? scroll
+  const avoidKeyboard = keyboardAvoiding ?? (scroll && Platform.OS === 'ios')
   const theme = useThemedStyles()
-  const { width, horizontalPadding, contentWidth } = useResponsive()
+  const { horizontalPadding, contentWidth } = useResponsive()
   const keyboardInset = useKeyboardBottomInset()
   const tabInsets = useTabScreenInsets()
   const padX = padded ? horizontalPadding : 0
-  const padBottom = scroll
-    ? tabInset
-      ? tabInsets.scrollBottomPadding
-      : isWeb
-        ? 48
-        : 24 + tabInsets.insets.bottom
-    : undefined
+  const padBottom = scroll ? (tabInset ? tabInsets.scrollBottomPadding : 48) : undefined
   const keyboardBottomPadding =
     avoidKeyboard && Platform.OS === 'android' ? keyboardInset : 0
 
@@ -96,12 +48,13 @@ export default function ScreenWrapper({
       style={[
         scroll ? undefined : { flex: 1 },
         {
-          width: '100%',
-          maxWidth: Math.min(contentWidth, MaxContentWidth),
+          width: contentWidth,
           alignSelf: 'center',
+          flexGrow: scroll ? undefined : 1,
         },
-        centered && isWeb ? { flex: 1, justifyContent: 'center' } : undefined,
+        centered ? { flex: 1, justifyContent: 'center' } : undefined,
       ]}
+      collapsable={false}
     >
       {children}
     </View>
@@ -113,17 +66,19 @@ export default function ScreenWrapper({
       contentContainerStyle={{
         paddingBottom: (padBottom ?? 0) + keyboardBottomPadding,
         paddingHorizontal: padX,
-        flexGrow: centered || scrollFlexGrow ? 1 : undefined,
+        flexGrow: scrollFlexGrow ? 1 : undefined,
+        alignItems: 'center',
         justifyContent: centered ? 'center' : undefined,
       }}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       automaticallyAdjustKeyboardInsets={avoidKeyboard && Platform.OS === 'ios'}
       nestedScrollEnabled
-      contentInsetAdjustmentBehavior="automatic"
+      removeClippedSubviews={false}
       showsVerticalScrollIndicator={false}
+      overScrollMode="never"
     >
-      <View className={contentContainerClassName}>{inner}</View>
+      {inner}
     </ScrollView>
   ) : null
 
@@ -132,8 +87,9 @@ export default function ScreenWrapper({
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={keyboardVerticalOffset}
-        enabled={Platform.OS !== 'web'}
+        keyboardVerticalOffset={
+          keyboardVerticalOffset || (Platform.OS === 'android' ? tabInsets.insets.top : 0)
+        }
       >
         {scrollView}
       </KeyboardAvoidingView>
@@ -146,9 +102,9 @@ export default function ScreenWrapper({
         flex: 1,
         paddingHorizontal: padX,
         paddingBottom: tabInset ? tabInsets.scrollBottomPadding : undefined,
+        alignItems: 'center',
         justifyContent: centered ? 'center' : undefined,
       }}
-      className={contentContainerClassName}
     >
       {inner}
     </View>
@@ -156,14 +112,9 @@ export default function ScreenWrapper({
 
   return (
     <SafeAreaView
-      className={`flex-1 ${className}`}
-      style={{
-        flex: 1,
-        backgroundColor: theme.colors.background,
-      }}
+      style={{ flex: 1, backgroundColor: theme.colors.background }}
       edges={edges}
     >
-      <MeshBackground isDark={theme.isDark} width={width} />
       {content}
     </SafeAreaView>
   )

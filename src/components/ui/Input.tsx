@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Pressable, Text, TextInput, View, type TextInputProps } from 'react-native'
 import { Eye, EyeOff } from 'lucide-react-native'
 
-import { brand } from '@/constants/design'
+import { brand, layout, spacing } from '@/constants/design'
+import { typography } from '@/constants/typography'
 import { radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
@@ -21,6 +22,7 @@ export function Input({
   onBlur,
   showPasswordToggle,
   secureTextEntry,
+  editable = true,
   ...props
 }: Props) {
   const theme = useThemedStyles()
@@ -30,16 +32,13 @@ export function Input({
   const isSecure = showPasswordToggle ? !passwordVisible : secureTextEntry
 
   return (
-    <View style={{ width: '100%', marginBottom: 18 }}>
+    <View style={{ width: '100%', marginBottom: spacing.lg }}>
       {label ? (
         <Text
           style={{
+            ...typography.label,
             color: theme.colors.text,
-            fontSize: 13,
-            fontWeight: '600',
-            marginBottom: 8,
-            letterSpacing: 0.3,
-            textTransform: 'uppercase',
+            marginBottom: spacing.sm,
           }}
         >
           {label}
@@ -49,6 +48,7 @@ export function Input({
         <TextInput
           placeholderTextColor={theme.colors.textMuted}
           className={className}
+          editable={editable}
           secureTextEntry={isSecure}
           onFocus={(e) => {
             setFocused(true)
@@ -61,12 +61,12 @@ export function Input({
           style={[
             {
               width: '100%',
-              minHeight: 54,
+              minHeight: layout.touchTarget + 6,
               borderRadius: radii.md,
-              paddingHorizontal: 18,
-              paddingVertical: 14,
-              fontSize: 16,
-              backgroundColor: theme.colors.card,
+              paddingHorizontal: spacing.lg,
+              paddingVertical: spacing.md,
+              ...typography.body,
+              backgroundColor: theme.colors.muted,
               color: theme.colors.text,
               borderColor: error
                 ? brand.danger
@@ -74,6 +74,7 @@ export function Input({
                   ? brand.primaryDark
                   : theme.colors.border,
               borderWidth: focused || error ? 2 : 1,
+              opacity: editable ? 1 : 0.65,
               ...(showPasswordToggle ? { paddingRight: 48 } : null),
             },
             style,
@@ -83,13 +84,15 @@ export function Input({
         {showPasswordToggle ? (
           <Pressable
             onPress={() => setPasswordVisible((visible) => !visible)}
-            hitSlop={8}
+            hitSlop={12}
             style={{
               position: 'absolute',
-              right: 14,
+              right: spacing.md,
               top: 0,
               bottom: 0,
               justifyContent: 'center',
+              minWidth: layout.touchTarget,
+              alignItems: 'center',
             }}
             accessibilityRole="button"
             accessibilityLabel={passwordVisible ? 'Hide password' : 'Show password'}
@@ -103,7 +106,9 @@ export function Input({
         ) : null}
       </View>
       {error ? (
-        <Text style={{ color: brand.danger, fontSize: 13, marginTop: 6 }}>{error}</Text>
+        <Text style={{ color: brand.danger, ...typography.caption, marginTop: spacing.sm }}>
+          {error}
+        </Text>
       ) : null}
     </View>
   )

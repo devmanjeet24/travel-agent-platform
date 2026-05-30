@@ -12,7 +12,7 @@ import {
   hasOnlyStaleHotels,
 } from '@/utils/travel-data-validity'
 
-/** Load OSM hotel/flight data when a trip module opens and cached data is missing or low quality. */
+/** Load travel data when a trip module opens and cached data is missing or low quality. */
 export function useSyncTripTravel(trip: TripRow | null | undefined) {
   const queryClient = useQueryClient()
   const tripId = trip?.id
@@ -29,7 +29,17 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
   useEffect(() => {
     hotelsAttempted.current = false
     flightsAttempted.current = false
-  }, [tripId, trip?.destination, trip?.destination_lat, trip?.destination_lon])
+  }, [
+    tripId,
+    trip?.destination,
+    trip?.destination_lat,
+    trip?.destination_lon,
+    trip?.origin_city,
+    trip?.start_date,
+    trip?.end_date,
+    trip?.budget_usd,
+    trip?.travelers,
+  ])
 
   useEffect(() => {
     if (!trip?.id) return
@@ -82,7 +92,28 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
 
   useEffect(() => {
     if (!trip?.id || !trip.start_date || !trip.origin_city) return
-    if (routePolicy && !includeFlights) return
+    if (routePolicy && !includeFlights) {
+      if (!flights?.length || flightsAttempted.current) return
+      flightsAttempted.current = true
+
+      void searchAndCacheFlights({
+        tripId: trip.id,
+        origin: trip.origin_city,
+        destination: trip.destination,
+        departDate: trip.start_date,
+        startDate: trip.start_date,
+        endDate: trip.end_date ?? undefined,
+        budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+        travelers: trip.travelers,
+      })
+        .then(() => {
+          void queryClient.invalidateQueries({ queryKey: tripKeys.flights(trip.id) })
+        })
+        .catch(() => {
+          flightsAttempted.current = false
+        })
+      return
+    }
 
     const needsFlights = !flights?.length || hasOnlyStaleFlights(flights)
     if (flightsLoading || !needsFlights || flightsAttempted.current) return
@@ -93,7 +124,10 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
       origin: trip.origin_city,
       destination: trip.destination,
       departDate: trip.start_date,
+      startDate: trip.start_date,
+      endDate: trip.end_date ?? undefined,
       budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+      travelers: trip.travelers,
     })
       .then(() => {
         void queryClient.invalidateQueries({ queryKey: tripKeys.flights(trip.id) })
@@ -106,7 +140,9 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
     trip?.destination,
     trip?.origin_city,
     trip?.start_date,
+    trip?.end_date,
     trip?.budget_usd,
+    trip?.travelers,
     flightsLoading,
     flights?.length,
     flights,

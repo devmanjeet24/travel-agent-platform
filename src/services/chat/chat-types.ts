@@ -23,6 +23,8 @@ export type ChatResult = {
   error: string | null;
   conversationId?: string;
   warning?: string;
+  tripId?: string;
+  openTripId?: string;
 };
 
 export type SendChatVariables = {

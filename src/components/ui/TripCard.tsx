@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { Image, Pressable, Text, View } from 'react-native'
 import { ChevronRight, MapPin, Trash2 } from 'lucide-react-native'
 
-import { brand, defaultTripImage } from '@/constants/design'
-import { radii } from '@/lib/ui-styles'
+import { brand, defaultTripImage, spacing } from '@/constants/design'
+import { textWithWeight } from '@/constants/inter-typography'
+import { typography } from '@/constants/typography'
+import { cardShadow, radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { Card } from './Card'
 
@@ -18,12 +20,24 @@ interface Props {
 
 function statusStyle(status: Props['status'], isDark: boolean) {
   if (status === 'upcoming') {
-    return { bg: isDark ? 'rgba(250,204,21,0.2)' : '#FEF9C3', text: '#A16207', label: 'Upcoming' }
+    return {
+      bg: isDark ? 'rgba(245,158,11,0.18)' : brand.warningMuted,
+      text: '#B45309',
+      label: 'Upcoming',
+    }
   }
   if (status === 'completed') {
-    return { bg: isDark ? 'rgba(22,163,74,0.2)' : '#DCFCE7', text: '#15803D', label: 'Done' }
+    return {
+      bg: isDark ? 'rgba(16,185,129,0.18)' : brand.successMuted,
+      text: '#047857',
+      label: 'Done',
+    }
   }
-  return { bg: isDark ? 'rgba(255,255,255,0.1)' : '#F5F5F5', text: isDark ? '#D4D4D4' : '#525252', label: 'Saved' }
+  return {
+    bg: isDark ? 'rgba(148,163,184,0.12)' : '#F4F6F9',
+    text: isDark ? '#CBD5E1' : '#475569',
+    label: 'Saved',
+  }
 }
 
 export function TripCard({
@@ -41,7 +55,7 @@ export function TripCard({
   const imageSource = failedImageUri === candidateImageUri ? defaultTripImage : candidateImageUri
 
   return (
-    <Card onPress={onPress} className="mb-4" padded={false}>
+    <Card onPress={onPress} className="mb-3" padded={false} style={[{ marginBottom: spacing.md }, cardShadow(theme.isDark, false)]}>
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Image
           key={imageSource}
@@ -56,43 +70,32 @@ export function TripCard({
             if (imageSource !== defaultTripImage) setFailedImageUri(candidateImageUri)
           }}
         />
-        <View style={{ flex: 1, padding: 16, paddingLeft: 14 }}>
+        <View style={{ flex: 1, paddingVertical: spacing.md, paddingHorizontal: spacing.md }}>
           <View
             style={{
               alignSelf: 'flex-start',
               backgroundColor: badge.bg,
-              paddingHorizontal: 10,
-              paddingVertical: 4,
+              paddingHorizontal: spacing.sm,
+              paddingVertical: 3,
               borderRadius: radii.pill,
-              marginBottom: 8,
+              marginBottom: spacing.sm,
             }}
           >
-            <Text style={{ color: badge.text, fontSize: 11, fontWeight: '700' }}>
+            <Text style={textWithWeight(typography.caption, '700', { color: badge.text })}>
               {badge.label}
             </Text>
           </View>
-          <Text
-            style={{
-              color: theme.colors.text,
-              fontSize: 17,
-              fontWeight: '700',
-              letterSpacing: -0.2,
-            }}
-            numberOfLines={1}
-          >
+          <Text style={{ ...typography.h3, color: theme.colors.text }} numberOfLines={1}>
             {title}
           </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.xs }}>
             <MapPin size={12} color={theme.colors.icon} />
-            <Text
-              style={{ color: theme.colors.textMuted, fontSize: 13 }}
-              numberOfLines={1}
-            >
+            <Text style={{ ...typography.caption, color: theme.colors.textMuted }} numberOfLines={1}>
               {subtitle}
             </Text>
           </View>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 10, gap: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: spacing.md, gap: spacing.sm }}>
           {onDelete ? (
             <Pressable
               onPress={(e) => {
@@ -104,8 +107,8 @@ export function TripCard({
               style={{
                 width: 36,
                 height: 36,
-                borderRadius: 18,
-                backgroundColor: theme.isDark ? 'rgba(239,68,68,0.15)' : '#FEE2E2',
+                borderRadius: radii.sm,
+                backgroundColor: theme.isDark ? 'rgba(239,68,68,0.12)' : brand.dangerMuted,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
@@ -117,8 +120,8 @@ export function TripCard({
             style={{
               width: 36,
               height: 36,
-              borderRadius: 18,
-              backgroundColor: theme.colors.muted,
+              borderRadius: radii.pill,
+              backgroundColor: theme.colors.primaryLight,
               alignItems: 'center',
               justifyContent: 'center',
             }}

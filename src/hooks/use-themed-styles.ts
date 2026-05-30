@@ -1,54 +1,64 @@
-import { useColorScheme } from 'react-native'
+import { useColorScheme } from '@/hooks/use-color-scheme'
 
 import { brand } from '@/constants/design'
 
-/** Light-first travel palette; dark mode uses soft navy (not pure black). */
+/** Semantic palette — neutral surfaces with sky accent; soft navy dark mode. */
 export function useThemedStyles() {
   const scheme = useColorScheme()
   const isDark = scheme === 'dark'
 
   const colors = isDark
     ? {
-        background: '#0C1929',
-        backgroundGradient: '#0F2744',
-        card: '#152238',
-        muted: '#1E3A5F',
+        background: '#0B1120',
+        backgroundGradient: '#0F172A',
+        card: '#131C2E',
+        cardElevated: '#182236',
+        muted: '#1A2438',
         text: '#F8FAFC',
         textMuted: '#94A3B8',
-        border: '#2E4A6F',
+        border: '#243044',
+        borderSubtle: '#1A2438',
         primary: brand.primary,
         primaryDark: brand.primaryDark,
-        primaryLight: '#1E3A5F',
+        primaryLight: 'rgba(37, 99, 235, 0.14)',
         accent: brand.accent,
-        icon: '#94A3B8',
+        accentMuted: 'rgba(99, 102, 241, 0.18)',
+        ai: brand.ai,
+        aiMuted: 'rgba(124, 58, 237, 0.18)',
+        icon: '#64748B',
+        overlay: 'rgba(0,0,0,0.52)',
       }
     : {
-        background: '#F0F9FF',
-        backgroundGradient: '#E0F2FE',
+        background: '#FAFBFC',
+        backgroundGradient: '#F4F6F9',
         card: '#FFFFFF',
-        muted: '#E0F2FE',
+        cardElevated: '#FFFFFF',
+        muted: '#F4F6F9',
         text: '#0F172A',
         textMuted: '#64748B',
-        border: '#BAE6FD',
+        border: '#E8ECF1',
+        borderSubtle: '#F1F4F8',
         primary: brand.primary,
         primaryDark: brand.primaryDark,
         primaryLight: brand.primaryLight,
         accent: brand.accent,
-        icon: '#64748B',
+        accentMuted: brand.accentMuted,
+        ai: brand.ai,
+        aiMuted: brand.aiMuted,
+        icon: '#94A3B8',
+        overlay: 'rgba(15, 23, 42, 0.42)',
       }
 
   return {
     isDark,
     colors,
-    bg: isDark ? 'bg-slate-900' : 'bg-sky-50',
-    bgCard: isDark ? 'bg-slate-800' : 'bg-white',
-    bgMuted: isDark ? 'bg-slate-800' : 'bg-sky-100',
-    text: isDark ? 'text-white' : 'text-slate-900',
+    bg: isDark ? 'bg-slate-950' : 'bg-slate-50',
+    bgCard: isDark ? 'bg-slate-900' : 'bg-white',
+    bgMuted: isDark ? 'bg-slate-800' : 'bg-slate-100',
+    text: isDark ? 'text-slate-50' : 'text-slate-900',
     textMuted: isDark ? 'text-slate-400' : 'text-slate-500',
-    border: isDark ? 'border-slate-700' : 'border-sky-200',
-    tabBar: isDark ? '#152238' : '#FFFFFF',
-    tabBarBorder: isDark ? '#2E4A6F' : '#E0F2FE',
-    accentText: 'text-sky-500',
-    accentBg: 'bg-sky-500/15',
+    border: isDark ? 'border-slate-700' : 'border-slate-200',
+    tabBar: isDark ? '#131C2E' : '#FFFFFF',
+    tabBarBorder: isDark ? '#243044' : '#E8ECF1',
   }
 }

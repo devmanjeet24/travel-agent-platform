@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Alert, Pressable, Text, View } from 'react-native'
+import { useCallback, useState } from 'react'
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native'
 import { Link, useRouter } from 'expo-router'
 
 import { PrimaryAuthButton } from '@/components/auth/PrimaryAuthButton'
@@ -8,12 +8,17 @@ import { AuthShell } from '@/components/ui/AuthShell'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { brand } from '@/constants/design'
-import { isWeb } from '@/lib/ui-styles'
+import { AUTH_FOOTER_MARGIN_TOP } from '@/lib/layout-parity'
 import { useResetPasswordMutation } from '@/hooks/auth/use-reset-password-mutation'
 import { useSignInMutation } from '@/hooks/auth/use-sign-in-mutation'
 import { useSignOutMutation } from '@/hooks/auth/use-sign-out-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
+import {
+  type AuthFieldErrors,
+  validateResetPasswordEmail,
+  validateSignInFields,
+} from '@/utils/auth-validation'
 
 export default function LoginScreen() {
   const router = useRouter()
@@ -21,25 +26,49 @@ export default function LoginScreen() {
   const { isConfigured, session } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({})
+  const [formError, setFormError] = useState<string | null>(null)
 
   const signInMutation = useSignInMutation()
   const resetPasswordMutation = useResetPasswordMutation()
   const signOutMutation = useSignOutMutation()
-  const loading = signInMutation.isPending
+
+  const isBusy =
+    signInMutation.isPending ||
+    resetPasswordMutation.isPending ||
+    signOutMutation.isPending
+
+  const clearFieldError = useCallback((field: keyof AuthFieldErrors) => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }, [])
 
   const handleSignIn = () => {
-    setError(null)
-    if (!email.trim() || !password) {
-      setError('Email and password are required.')
+    if (isBusy) return
+    setFormError(null)
+
+    if (!isConfigured) {
+      setFormError('Supabase is not configured. Add your keys in .env first.')
       return
     }
+
+    const result = validateSignInFields(email, password)
+    if (!result.ok) {
+      setFieldErrors(result.errors)
+      return
+    }
+    setFieldErrors({})
+
     signInMutation.mutate(
-      { email: email.trim(), password },
+      { email: result.email, password },
       {
         onSuccess: ({ error: authError }) => {
           if (authError) {
-            setError(authError)
+            setFormError(authError)
             return
           }
           router.replace('/(tabs)')
@@ -49,18 +78,34 @@ export default function LoginScreen() {
   }
 
   const handleForgotPassword = () => {
-    if (!email.trim()) {
-      Alert.alert('Reset password', 'Enter your email above first.')
+    if (isBusy || resetPasswordMutation.isPending) return
+
+    if (!isConfigured) {
+      Alert.alert('Reset password', 'Supabase is not configured. Add your keys in .env first.')
       return
     }
+
+    const result = validateResetPasswordEmail(email)
+    if (!result.ok) {
+      setFieldErrors({ email: result.message })
+      return
+    }
+    setFieldErrors((prev) => {
+      if (!prev.email) return prev
+      const next = { ...prev }
+      delete next.email
+      return next
+    })
+
     resetPasswordMutation.mutate(
-      { email: email.trim() },
+      { email: result.email },
       {
         onSettled: (data) => {
           const resetError = data?.error ?? null
           Alert.alert(
             resetError ? 'Could not send reset email' : 'Check your email',
-            resetError ?? 'If an account exists, a reset link was sent.',
+            resetError ??
+              'If an account exists for this address, we sent a link to reset your password.',
           )
         },
       },
@@ -68,6 +113,7 @@ export default function LoginScreen() {
   }
 
   const handleSignOut = () => {
+    if (signOutMutation.isPending) return
     signOutMutation.mutate(undefined, {
       onSettled: () => router.replace('/(auth)/login'),
     })
@@ -84,7 +130,12 @@ export default function LoginScreen() {
             You are already signed in.
           </Text>
           <Button title="Go to app" onPress={() => router.replace('/(tabs)')} />
-          <Button title="Sign out" variant="outline" onPress={handleSignOut} />
+          <Button
+            title="Sign out"
+            variant="outline"
+            onPress={handleSignOut}
+            disabled={signOutMutation.isPending}
+          />
         </View>
       ) : null}
 
@@ -101,56 +152,91 @@ export default function LoginScreen() {
             placeholder="you@example.com"
             keyboardType="email-address"
             autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="email"
+            textContentType="emailAddress"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => {
+              setEmail(text)
+              clearFieldError('email')
+              setFormError(null)
+            }}
+            error={fieldErrors.email}
+            editable={!isBusy}
+            returnKeyType="next"
           />
           <Input
             label="Password"
             placeholder="••••••••"
             showPasswordToggle
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="password"
+            textContentType="password"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text)
+              clearFieldError('password')
+              setFormError(null)
+            }}
+            error={fieldErrors.password}
+            editable={!isBusy}
             returnKeyType="go"
             onSubmitEditing={handleSignIn}
           />
 
-          {error ? (
+          {formError ? (
             <Text
+              accessibilityRole="alert"
               style={{
                 color: brand.danger,
                 fontSize: 14,
                 marginTop: -8,
                 marginBottom: 12,
+                lineHeight: 20,
               }}
             >
-              {error}
+              {formError}
             </Text>
           ) : null}
 
           <PrimaryAuthButton
             title="Sign in"
-            loading={loading}
+            loading={signInMutation.isPending}
+            disabled={isBusy && !signInMutation.isPending}
             onPress={handleSignIn}
           />
 
           <Pressable
             onPress={handleForgotPassword}
-            style={{ alignSelf: 'center', marginTop: 12, marginBottom: 16, paddingVertical: 8 }}
+            disabled={resetPasswordMutation.isPending || isBusy}
+            style={{
+              alignSelf: 'center',
+              marginTop: 12,
+              marginBottom: 16,
+              paddingVertical: 8,
+              opacity: resetPasswordMutation.isPending ? 0.6 : 1,
+            }}
             accessibilityRole="button"
             accessibilityLabel="Forgot password"
+            accessibilityState={{ disabled: resetPasswordMutation.isPending }}
           >
-            <Text style={{ color: brand.primaryDark, fontWeight: '600', fontSize: 14 }}>
-              Forgot password?
-            </Text>
+            {resetPasswordMutation.isPending ? (
+              <ActivityIndicator color={brand.primaryDark} />
+            ) : (
+              <Text style={{ color: brand.primaryDark, fontWeight: '600', fontSize: 14 }}>
+                Forgot password?
+              </Text>
+            )}
           </Pressable>
 
-          <SocialAuthButtons onError={setError} />
+          <SocialAuthButtons onError={setFormError} disabled={isBusy} />
 
           <Text
             style={{
               color: colors.textMuted,
               textAlign: 'center',
-              marginTop: isWeb ? 24 : 20,
+              marginTop: AUTH_FOOTER_MARGIN_TOP,
               fontSize: 15,
             }}
           >

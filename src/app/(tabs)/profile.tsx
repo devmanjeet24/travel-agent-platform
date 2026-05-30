@@ -1,12 +1,16 @@
-import { ActivityIndicator, Pressable, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
-import { ChevronRight, LogOut, Settings } from 'lucide-react-native'
+import { LogOut, Settings, UserPen } from 'lucide-react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 
 import { ProfileAvatarEditor } from '@/components/profile/ProfileAvatarEditor'
-import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
+import { MenuRow } from '@/components/ui/MenuRow'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
-import { brand } from '@/constants/design'
+import { StatCard } from '@/components/ui/StatCard'
+import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton'
+import { brand, spacing } from '@/constants/design'
+import { textWithWeight } from '@/constants/inter-typography'
+import { typography } from '@/constants/typography'
 import { useResponsive } from '@/hooks/use-responsive'
 import { cardShadow, radii } from '@/lib/ui-styles'
 import { useJourneyStats } from '@/hooks/profile/use-journey-stats'
@@ -24,135 +28,122 @@ export default function ProfileScreen() {
   const { stats, isLoading: statsLoading } = useJourneyStats()
   useSyncProfileStats()
   const signOutMutation = useSignOutMutation()
-  const { scaleFont, isDesktop } = useResponsive()
+  const { scaleFont, contentWidth } = useResponsive()
+  const statGap = spacing.sm
+  const statWidth = Math.floor((contentWidth - statGap * 2) / 3)
 
   const email = user?.email ?? ''
   const name = profile?.display_name ?? displayName
 
   const handleSignOut = () => {
     signOutMutation.mutate(undefined, {
-      onSettled: () => {
-        router.replace('/(auth)/login')
-      },
+      onSettled: () => router.replace('/(auth)/login'),
     })
   }
 
-  const menuItems = [
-    { label: 'Settings', icon: Settings, route: '/settings' as const },
-  ]
-
   return (
-    <ScreenWrapper scroll tabInset>
+    <ScreenWrapper scroll tabInset scrollFlexGrow={false} subtleBackground>
+      {/* Profile hero */}
       <View
         style={[
           {
-            marginTop: 8,
-            borderRadius: radii.xl,
-            padding: isDesktop ? 28 : 22,
-            backgroundColor: brand.primaryDark,
-            alignItems: 'center',
+            alignSelf: 'stretch',
+            borderRadius: radii['2xl'],
+            overflow: 'hidden',
+            marginTop: spacing.sm,
           },
           cardShadow(theme.isDark),
         ]}
       >
-        <ProfileAvatarEditor uri={profile?.avatar_url ?? undefined} name={name} size="lg" />
-        <Text
-          style={{
-            color: brand.onPrimary,
-            fontSize: scaleFont(22),
-            fontWeight: '800',
-            marginTop: 14,
-          }}
+        <LinearGradient
+          colors={theme.isDark ? ['#1E3A8A', '#312E81'] : ['#2563EB', '#4F46E5']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={{ padding: spacing['2xl'], alignItems: 'center' }}
         >
-          {name}
-        </Text>
-        <Text style={{ color: 'rgba(255,255,255,0.8)', marginTop: 6, fontSize: 14 }}>{email}</Text>
+          <ProfileAvatarEditor uri={profile?.avatar_url ?? undefined} name={name} size="lg" />
+          <Text
+            style={textWithWeight(typography.h1, '800', {
+              color: brand.onPrimary,
+              fontSize: scaleFont(22),
+              marginTop: spacing.lg,
+            })}
+            numberOfLines={1}
+          >
+            {name}
+          </Text>
+          <Text
+            style={{ ...typography.bodySm, color: 'rgba(255,255,255,0.82)', marginTop: spacing.xs }}
+            numberOfLines={1}
+          >
+            {email}
+          </Text>
+        </LinearGradient>
       </View>
 
+      {/* Stats */}
       {isLoading || statsLoading ? (
-        <ActivityIndicator style={{ marginTop: 24 }} color={brand.primaryDark} />
+        <View style={{ marginTop: spacing.xl }}>
+          <LoadingSkeleton lines={2} />
+        </View>
       ) : (
-        <View style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
-          {[
-            { label: 'Trips', value: stats.tripsCount },
-            { label: 'Countries', value: stats.countriesCount },
-            { label: 'AI plans', value: stats.aiPlansCount },
-          ].map((stat) => (
-            <View
-              key={stat.label}
-              style={[
-                {
-                  flex: 1,
-                  alignItems: 'center',
-                  padding: 16,
-                  borderRadius: radii.lg,
-                  backgroundColor: theme.colors.card,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                },
-                cardShadow(theme.isDark, false),
-              ]}
-            >
-              <Text
-                style={{
-                  color: brand.primaryDark,
-                  fontSize: 24,
-                  fontWeight: '800',
-                }}
-              >
-                {stat.value}
-              </Text>
-              <Text style={{ color: theme.colors.textMuted, fontSize: 12, marginTop: 4 }}>
-                {stat.label}
-              </Text>
-            </View>
-          ))}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignSelf: 'stretch',
+            marginTop: spacing.xl,
+          }}
+        >
+          <StatCard label="Trips" value={stats.tripsCount} width={statWidth} style={{ marginRight: statGap }} />
+          <StatCard
+            label="Countries"
+            value={stats.countriesCount}
+            accent={brand.accent}
+            width={statWidth}
+            style={{ marginRight: statGap }}
+          />
+          <StatCard label="AI plans" value={stats.aiPlansCount} accent={brand.ai} width={statWidth} />
         </View>
       )}
 
-      <View style={{ marginTop: 24, gap: 10 }}>
-        {menuItems.map((item) => {
-          const Icon = item.icon
-          return (
-            <Card key={item.label} onPress={() => router.push(item.route)}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: radii.md,
-                    backgroundColor: brand.primaryLight,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: 14,
-                  }}
-                >
-                  <Icon size={20} color={brand.primaryDark} />
-                </View>
-                <Text style={{ color: theme.colors.text, flex: 1, fontWeight: '600', fontSize: 16 }}>
-                  {item.label}
-                </Text>
-                <ChevronRight size={20} color={theme.colors.icon} />
-              </View>
-            </Card>
-          )
-        })}
+      {/* Account menu */}
+      <View style={{ marginTop: spacing['2xl'] }}>
+        <Text
+          style={{
+            ...typography.h1,
+            fontSize: scaleFont(24),
+            color: theme.colors.text,
+            letterSpacing: -0.5,
+            marginBottom: spacing.lg,
+          }}
+        >
+          Account
+        </Text>
+        <MenuRow
+          label="Edit profile"
+          description="Update your name and photo"
+          icon={UserPen}
+          gapAfter={spacing.xl}
+          onPress={() => router.push('/edit-profile')}
+        />
+        <MenuRow
+          label="Settings"
+          description="Theme, notifications & offline sync"
+          icon={Settings}
+          iconColor={brand.ai}
+          iconBg={theme.colors.aiMuted}
+          gapAfter={spacing.xl}
+          onPress={() => router.push('/settings')}
+        />
+        <MenuRow
+          label={signOutMutation.isPending ? 'Signing out…' : 'Sign out'}
+          icon={LogOut}
+          destructive
+          showChevron={false}
+          gapAfter={0}
+          onPress={handleSignOut}
+        />
       </View>
-
-      <Button
-        title={signOutMutation.isPending ? 'Signing out…' : 'Sign out'}
-        variant="danger"
-        onPress={handleSignOut}
-        disabled={signOutMutation.isPending}
-        style={{ marginTop: 20 }}
-      />
-
-      <Button
-        title="Edit profile"
-        variant="outline"
-        onPress={() => router.push('/edit-profile')}
-        style={{ marginTop: 12, maxWidth: isDesktop ? 280 : undefined, alignSelf: isDesktop ? 'flex-start' : 'stretch' }}
-      />
     </ScreenWrapper>
   )
 }

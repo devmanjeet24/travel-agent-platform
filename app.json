@@ -4,11 +4,12 @@
     "slug": "travel-agent-platform",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/app-logo.png",
     "scheme": "travelagentplatform",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/app-logo.png",
+      "bundleIdentifier": "com.saurabh.travelagentplatform"
     },
     "android": {
       "softwareKeyboardLayoutMode": "resize",
@@ -17,15 +18,20 @@
         {
           "action": "VIEW",
           "autoVerify": false,
-          "data": [{ "scheme": "travelagentplatform" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "travelagentplatform"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
       "adaptiveIcon": {
         "backgroundColor": "#F0F9FF",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -39,6 +45,19 @@
     },
     "plugins": [
       "expo-router",
+      "expo-updates",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": [
+              "arm64-v8a",
+              "armeabi-v7a"
+            ]
+          }
+        }
+      ],
+      "./plugins/with-android-gradle-memory",
       [
         "expo-splash-screen",
         {
@@ -76,17 +95,27 @@
           "microphonePermission": "Allow microphone for voice trip planning."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-build-properties"
     ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": true,
+      "url": "https://u.expo.dev/ce2c8b13-cf53-452c-8df1-38ce3c720cb4",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+      "typedRoutes": true
     },
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "634aff8f-a15d-4f68-a725-b84aaf7f6050"
+        "projectId": "ce2c8b13-cf53-452c-8df1-38ce3c720cb4"
       }
-    }
+    },
+    "owner": "manjeet01"
   }
 }

@@ -56,7 +56,7 @@ export async function resetPassword(email: string): Promise<AuthResult> {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: getAuthRedirectUrl(),
   });
-  return { error: error?.message ?? null };
+  return { error: error ? formatAuthError(error) : null };
 }
 
 export type SignInVariables = { email: string; password: string };

@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Text, View } from 'react-native'
 import { useLocalSearchParams } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
 
 import {
   AttractionRow,
-  openAttractionInMaps,
   TripMap,
 } from '@/components/maps/TripMap'
 import TripScreenWrapper from '@/components/trip/TripScreenWrapper'
@@ -93,6 +92,7 @@ export default function MapScreen() {
   const theme = useThemedStyles()
   const queryClient = useQueryClient()
   const geocodeAttempted = useRef(new Set<string>())
+  const [focusedAttractionId, setFocusedAttractionId] = useState<string | null>(null)
   const { data: trip } = useTripQuery(id)
   const { data: itinerary, isLoading } = useTripItineraryQuery(id)
 
@@ -218,6 +218,7 @@ export default function MapScreen() {
           attractions={attractions}
           routeAttractions={routeAttractions}
           initialRegion={region}
+          focusedAttractionId={focusedAttractionId}
         />
       </View>
 
@@ -225,7 +226,7 @@ export default function MapScreen() {
         <AttractionRow
           key={a.id}
           attraction={a}
-          onNavigate={() => openAttractionInMaps(a)}
+          onNavigate={() => setFocusedAttractionId(a.id)}
         />
       ))}
     </TripScreenWrapper>

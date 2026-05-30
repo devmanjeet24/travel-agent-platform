@@ -36,11 +36,15 @@ if [[ "${AVAIL_GB}" -lt 8 ]]; then
   exit 1
 fi
 
+export NODE_ENV=production
+export GRADLE_OPTS="${GRADLE_OPTS:-} -Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8"
+
 echo "Generating native android/ from app.json (if needed)..."
 npx expo prebuild --platform android --clean
 
 echo "Assembling release APK..."
 cd android
+./gradlew --stop 2>/dev/null || true
 ./gradlew assembleRelease
 
 APK="app/build/outputs/apk/release/app-release.apk"

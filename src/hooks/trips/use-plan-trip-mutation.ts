@@ -5,7 +5,6 @@ import { journeyStatsKeys } from '@/hooks/profile/use-journey-stats';
 import { planTrip } from '@/services/travel/travel-api';
 import { tripKeys } from '@/services/trips/trip-keys';
 import { useAuth } from '@/providers/auth-provider';
-
 export function usePlanTripMutation() {
   const queryClient = useQueryClient();
   const { user } = useAuth();

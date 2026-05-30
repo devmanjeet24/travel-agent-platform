@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -32,6 +31,7 @@ type Props = {
   attractions?: TripAttraction[];
   routeAttractions?: TripAttraction[];
   initialRegion?: MapRegion;
+  focusedAttractionId?: string | null;
 };
 
 type MapSize = {
@@ -52,7 +52,9 @@ const EMPTY_MAP_REGION: MapRegion = {
   latitudeDelta: 1,
   longitudeDelta: 1,
 };
+const DEFAULT_MAP_SIZE: MapSize = { width: 640, height: 400 };
 const EMPTY_ROUTE_COORDINATES: LatLng[] = [];
+const MAX_RENDER_ROUTE_POINTS = 700;
 
 function filterValidAttractions(attractions: TripAttraction[]): TripAttraction[] {
   return attractions.filter((a) =>
@@ -96,6 +98,49 @@ function dedupeRouteWaypoints(points: LatLng[]): LatLng[] {
   return deduped;
 }
 
+function regionFromCoordinates(points: LatLng[]): MapRegion | null {
+  const valid = points.filter((point) =>
+    isValidCoordinate(point.latitude, point.longitude),
+  );
+  if (!valid.length) return null;
+
+  const lats = valid.map((point) => point.latitude);
+  const lons = valid.map((point) => point.longitude);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLon = Math.min(...lons);
+  const maxLon = Math.max(...lons);
+
+  return {
+    latitude: (minLat + maxLat) / 2,
+    longitude: (minLon + maxLon) / 2,
+    latitudeDelta: Math.max(0.04, (maxLat - minLat) * 1.35),
+    longitudeDelta: Math.max(0.04, (maxLon - minLon) * 1.35),
+  };
+}
+
+function focusedRegionForAttraction(
+  attraction: TripAttraction,
+  currentRegion: MapRegion,
+): MapRegion {
+  return {
+    latitude: attraction.coordinate.latitude,
+    longitude: attraction.coordinate.longitude,
+    latitudeDelta: Math.min(Math.max(currentRegion.latitudeDelta / 3, 0.02), 0.12),
+    longitudeDelta: Math.min(Math.max(currentRegion.longitudeDelta / 3, 0.02), 0.12),
+  };
+}
+
+function sampleRouteCoordinates(points: LatLng[], maxPoints: number): LatLng[] {
+  if (points.length <= maxPoints) return points;
+  const sampled: LatLng[] = [];
+  const step = (points.length - 1) / (maxPoints - 1);
+  for (let i = 0; i < maxPoints; i += 1) {
+    sampled.push(points[Math.round(i * step)]);
+  }
+  return sampled;
+}
+
 function webMercatorPixel(
   coordinate: LatLng,
   zoom: number,
@@ -135,9 +180,10 @@ export function TripMap({
   attractions = [],
   routeAttractions,
   initialRegion = EMPTY_MAP_REGION,
+  focusedAttractionId,
 }: Props) {
   const theme = useThemedStyles();
-  const region = useMemo(
+  const baseRegion = useMemo(
     () => sanitizeMapRegion(initialRegion),
     [initialRegion],
   );
@@ -163,30 +209,7 @@ export function TripMap({
     key: string;
     urls: Set<string>;
   }>(() => ({ key: '', urls: new Set() }));
-
-  const center = useMemo(
-    () => ({
-      latitude: region.latitude,
-      longitude: region.longitude,
-    }),
-    [region.latitude, region.longitude],
-  );
-  const staticMapSize = mapSize ?? { width: 640, height: 400 };
-  const zoom = useMemo(
-    () =>
-      zoomFromRegion(
-        region.latitudeDelta,
-        region.longitudeDelta,
-        staticMapSize.width,
-        staticMapSize.height,
-      ),
-    [
-      region.latitudeDelta,
-      region.longitudeDelta,
-      staticMapSize.height,
-      staticMapSize.width,
-    ],
-  );
+  const staticMapSize = mapSize ?? DEFAULT_MAP_SIZE;
   const routeKey = useMemo(
     () =>
       waypointKey(dedupeRouteWaypoints(validRouteAttractions.map((a) => a.coordinate))),
@@ -205,6 +228,48 @@ export function TripMap({
         ? currentRouteCoordinates
         : routeWaypoints,
     [currentRouteCoordinates, routeWaypoints],
+  );
+  const focusedAttraction = useMemo(
+    () =>
+      focusedAttractionId
+        ? validAttractions.find((attraction) => attraction.id === focusedAttractionId) ?? null
+        : null,
+    [focusedAttractionId, validAttractions],
+  );
+  const routeRegion = useMemo(
+    () => regionFromCoordinates(displayRouteCoordinates),
+    [displayRouteCoordinates],
+  );
+  const region = useMemo(
+    () =>
+      sanitizeMapRegion(
+        focusedAttraction
+          ? focusedRegionForAttraction(focusedAttraction, routeRegion ?? baseRegion)
+          : routeRegion ?? baseRegion,
+      ),
+    [baseRegion, focusedAttraction, routeRegion],
+  );
+  const center = useMemo(
+    () => ({
+      latitude: region.latitude,
+      longitude: region.longitude,
+    }),
+    [region.latitude, region.longitude],
+  );
+  const zoom = useMemo(
+    () =>
+      zoomFromRegion(
+        region.latitudeDelta,
+        region.longitudeDelta,
+        staticMapSize.width,
+        staticMapSize.height,
+      ),
+    [
+      region.latitudeDelta,
+      region.longitudeDelta,
+      staticMapSize.height,
+      staticMapSize.width,
+    ],
   );
   const visibleRouteMeta = routeWaypoints.length >= 2 ? currentRouteMeta : null;
   const visibleRouteNotice =
@@ -236,16 +301,17 @@ export function TripMap({
     failedTileUrls.urls.size >= mapTileUrls.length;
 
   const routePolyline = useMemo(() => {
-    if (!mapSize || displayRouteCoordinates.length < 2) return '';
+    const validRouteCoordinates = displayRouteCoordinates.filter((coordinate) =>
+      isValidCoordinate(coordinate.latitude, coordinate.longitude),
+    );
+    if (validRouteCoordinates.length < 2) return '';
 
-    return displayRouteCoordinates
-      .filter((coordinate) =>
-        isValidCoordinate(coordinate.latitude, coordinate.longitude),
-      )
-      .map((coordinate) => projectToMap(coordinate, center, zoom, mapSize))
+    return sampleRouteCoordinates(validRouteCoordinates, MAX_RENDER_ROUTE_POINTS)
+      .map((coordinate) => projectToMap(coordinate, center, zoom, staticMapSize))
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
       .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
       .join(' ');
-  }, [center, displayRouteCoordinates, mapSize, zoom]);
+  }, [center, displayRouteCoordinates, staticMapSize, zoom]);
 
   const handleMapLayout = useCallback((event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
@@ -417,9 +483,16 @@ export function TripMap({
       <View
         onLayout={handleMapLayout}
         className="flex-1 min-h-[280px] rounded-2xl overflow-hidden mb-3"
+        style={[styles.mapCanvas, { backgroundColor: theme.isDark ? '#111827' : '#E5E7EB' }]}
       >
         {!previewFailed ? (
-          <View style={StyleSheet.absoluteFill}>
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              styles.tileLayer,
+              { backgroundColor: theme.isDark ? '#111827' : '#E5E7EB' },
+            ]}
+          >
             {mapTiles.map((tile) => (
               <Image
                 key={tile.key}
@@ -458,14 +531,14 @@ export function TripMap({
           <Svg
             pointerEvents="none"
             style={StyleSheet.absoluteFill}
-            width={mapSize?.width ?? '100%'}
-            height={mapSize?.height ?? '100%'}
-            viewBox={`0 0 ${mapSize?.width ?? 1} ${mapSize?.height ?? 1}`}
+            width="100%"
+            height="100%"
+            viewBox={`0 0 ${staticMapSize.width} ${staticMapSize.height}`}
           >
             <Polyline
               points={routePolyline}
               fill="none"
-              stroke="rgba(255,255,255,0.85)"
+              stroke={theme.isDark ? 'rgba(255,255,255,0.85)' : 'rgba(15,23,42,0.35)'}
               strokeWidth={7}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -482,10 +555,7 @@ export function TripMap({
         ) : null}
 
         {validAttractions.slice(0, 12).map((attraction, index) => {
-              const point = mapSize
-                ? projectToMap(attraction.coordinate, center, zoom, mapSize)
-                : null;
-              if (!point) return null;
+              const point = projectToMap(attraction.coordinate, center, zoom, staticMapSize);
               return (
                 <View
                   key={attraction.id}
@@ -495,6 +565,7 @@ export function TripMap({
                     {
                       left: point.x - 10,
                       top: point.y - 20,
+                      borderColor: theme.isDark ? '#0F172A' : '#FFFFFF',
                     },
                   ]}
                 >
@@ -503,15 +574,21 @@ export function TripMap({
               );
             })}
 
-        <View className="absolute bottom-0 left-0 right-0 bg-black/50 px-3 py-2">
-          <Text className="text-white text-sm font-medium">
+        <View
+          className="absolute bottom-0 left-0 right-0 px-3 py-2"
+          style={{ backgroundColor: theme.colors.overlay }}
+        >
+          <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>
             Map route preview
           </Text>
         </View>
 
         {visibleLoadingRoute ? (
-          <View className="absolute inset-0 items-center justify-center bg-black/20">
-            <ActivityIndicator color="#fff" />
+          <View
+            className="absolute inset-0 items-center justify-center"
+            style={{ backgroundColor: theme.colors.overlay }}
+          >
+            <ActivityIndicator color={theme.colors.text} />
           </View>
         ) : null}
       </View>
@@ -553,7 +630,7 @@ export function AttractionRow({
       <Text className={`${theme.textMuted} text-sm mt-1`}>
         {attraction.subtitle}
       </Text>
-      <Text className="text-yellow-600 text-sm mt-2 font-medium">
+      <Text style={{ color: brand.primaryDark, fontSize: 14, marginTop: 8, fontWeight: '600' }}>
         Open in map →
       </Text>
     </Pressable>
@@ -563,11 +640,20 @@ export function AttractionRow({
 export function openAttractionInMaps(attraction: TripAttraction) {
   const { latitude, longitude } = attraction.coordinate;
   if (!isValidCoordinate(latitude, longitude)) return;
-  const query = encodeURIComponent(`${latitude},${longitude}`);
-  void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+  console.debug('[TripMap] attraction selected for in-app map focus', {
+    title: attraction.title,
+    latitude,
+    longitude,
+  });
 }
 
 const styles = StyleSheet.create({
+  mapCanvas: {
+    backgroundColor: '#E5E7EB',
+  },
+  tileLayer: {
+    backgroundColor: '#E5E7EB',
+  },
   tile: {
     position: 'absolute',
   },
@@ -578,7 +664,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: brand.primaryDark,
     borderWidth: 2,
-    borderColor: '#fff',
+    borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },

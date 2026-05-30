@@ -1,34 +1,32 @@
-import { Platform } from 'react-native'
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
+import {
+  TAB_BAR_CONTENT_HEIGHT,
+  TAB_COMPOSER_BOTTOM_EXTRA,
+  fixedTabBarScrollPadding,
+  fixedTabBarTotalHeight,
+} from '@/lib/layout-parity'
 import { useResponsive } from '@/hooks/use-responsive'
-import { isWeb } from '@/lib/ui-styles'
 
 /**
- * Bottom inset for scrollable tab screens (clears floating tab bar on web + native tab bar).
+ * Bottom inset for scrollable tab screens (clears fixed tab bar on all platforms).
  */
 export function useTabScreenInsets() {
   const insets = useSafeAreaInsets()
   const { horizontalPadding } = useResponsive()
-  let tabBarHeight = 0
+  let measuredTabBarHeight = 0
 
   try {
-    // ScreenWrapper is also used outside tab navigators; keep the runtime fallback.
     // eslint-disable-next-line react-hooks/rules-of-hooks
-    tabBarHeight = useBottomTabBarHeight()
+    measuredTabBarHeight = useBottomTabBarHeight()
   } catch {
-    tabBarHeight = Platform.OS === 'ios' ? 84 : 64
+    measuredTabBarHeight = fixedTabBarTotalHeight(insets.bottom)
   }
 
-  const scrollBottomPadding = isWeb
-    ? tabBarHeight + 24
-    : tabBarHeight + Math.max(insets.bottom, 8) + 8
-
-  /** Web tab bar floats over content; native tab screens end above the bar (no tabBarHeight offset). */
-  const composerBottomPadding = isWeb
-    ? tabBarHeight + Math.max(insets.bottom, 16) + 12
-    : 10
+  const tabBarHeight = Math.max(measuredTabBarHeight, fixedTabBarTotalHeight(insets.bottom))
+  const scrollBottomPadding = fixedTabBarScrollPadding(insets.bottom)
+  const composerBottomPadding = scrollBottomPadding + TAB_COMPOSER_BOTTOM_EXTRA
 
   return {
     insets,
