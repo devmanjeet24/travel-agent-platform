@@ -33,6 +33,8 @@ export type StreamChatCallbacks = {
     conversationId?: string;
     title?: string;
     warning?: string;
+    tripId?: string;
+    openTripId?: string;
   }) => void;
   onError: (message: string) => void;
   onWarning?: (message: string) => void;
@@ -59,6 +61,8 @@ function parseSseLines(
         title?: string;
         error?: string;
         warning?: string;
+        tripId?: string;
+        openTripId?: string;
       };
       if (data.error) {
         callbacks.onError(data.error);
@@ -72,6 +76,8 @@ function parseSseLines(
           conversationId: data.conversationId,
           title: data.title,
           warning: data.warning,
+          tripId: data.tripId,
+          openTripId: data.openTripId,
         });
       }
     } catch {
@@ -187,6 +193,8 @@ export async function sendChatWithStream(
     reply: result.reply,
     conversationId: result.conversationId,
     warning: result.warning,
+    tripId: result.tripId,
+    openTripId: result.openTripId,
   });
 }
 

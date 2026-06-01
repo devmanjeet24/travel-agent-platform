@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native'
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
-import { useLocalSearchParams } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
 import { Paperclip, Sparkles, X } from 'lucide-react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ChatComposer } from '@/components/chat/ChatComposer'
 import { ChatHeader } from '@/components/chat/ChatHeader'
 import { ChatBubble } from '@/components/ui/ChatBubble'
-import { brand } from '@/constants/design'
+import { brand, spacing } from '@/constants/design'
 import { useResponsive } from '@/hooks/use-responsive'
 import { useKeyboardBottomInset } from '@/hooks/use-keyboard-bottom-inset'
 import { useTabScreenInsets } from '@/hooks/use-tab-screen-insets'
@@ -30,6 +30,8 @@ import {
   fetchConversationMessages,
   fetchLatestConversation,
 } from '@/services/chat/chat-db'
+import { loadChatSessionCache, saveChatSessionCache } from '@/lib/chat-offline-cache'
+import { useIsOffline } from '@/hooks/use-offline-sync'
 import { parseTripContextFromMessage } from '@/utils/trip-context-parse'
 import { deriveChatTitle } from '@/utils/chat-title'
 import type { ChatAttachment, ChatHistoryItem, ChatMessage } from '@/services/chat'
@@ -43,20 +45,33 @@ function formatTime(date = new Date()) {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
+const MAX_CLIENT_HISTORY_TURNS = 4
+const MAX_CLIENT_HISTORY_CHARS = 600
+
 function toHistory(messages: ChatMessage[]): ChatHistoryItem[] {
   return messages
     .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .map(({ role, content }) => ({ role, content }))
+    .slice(-MAX_CLIENT_HISTORY_TURNS)
+    .map(({ role, content }) => {
+      const trimmed = content.trim()
+      const clipped =
+        trimmed.length > MAX_CLIENT_HISTORY_CHARS
+          ? `${trimmed.slice(0, MAX_CLIENT_HISTORY_CHARS - 1)}…`
+          : trimmed
+      return { role, content: clipped }
+    })
 }
 
 export default function ChatScreen() {
+  const router = useRouter()
   const theme = useThemedStyles()
   const { user } = useAuth()
   const insets = useSafeAreaInsets()
   const tabBarHeight = useBottomTabBarHeight()
-  const { horizontalPadding, contentWidth } = useResponsive()
+  const { horizontalPadding } = useResponsive()
   const tabInsets = useTabScreenInsets()
   const params = useLocalSearchParams<{ tripId?: string; conversationId?: string }>()
+  const isOffline = useIsOffline()
   const listRef = useRef<FlatList<ChatMessage>>(null)
   const speakReplyRef = useRef<(reply: string) => Promise<void>>(async () => {})
   const shouldSpeakRef = useRef(false)
@@ -71,9 +86,12 @@ export default function ChatScreen() {
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
 
   const keyboardInset = useKeyboardBottomInset()
+  const isKeyboardOpen = keyboardInset > 0
   const composerBottomPad =
     Platform.OS === 'android'
-      ? tabInsets.composerBottomPadding + keyboardInset
+      ? isKeyboardOpen
+        ? Math.max(keyboardInset, insets.bottom) + spacing.sm
+        : tabInsets.composerBottomPadding
       : tabInsets.composerBottomPadding
   const keyboardOffset = Platform.OS === 'ios' ? tabBarHeight + insets.top : 0
   const listPadX = horizontalPadding
@@ -152,20 +170,35 @@ export default function ChatScreen() {
             )
             scrollToEnd()
           },
-          onDone: ({ reply, conversationId: newConvId, title, warning: w }) => {
+          onDone: ({ reply, conversationId: newConvId, title, warning: w, openTripId }) => {
+            const resolvedConvId = newConvId ?? conversationId
             if (newConvId) setConversationId(newConvId)
+            const resolvedTitle = title ?? conversationTitle
             if (title) setConversationTitle(title)
             if (w) setWarning(w)
-            setMessages((prev) =>
-              prev.map((m) =>
+            setMessages((prev) => {
+              const next = prev.map((m) =>
                 m.id === assistantId ? { ...m, content: reply, streaming: false } : m,
-              ),
-            )
+              )
+              if (resolvedConvId) {
+                void saveChatSessionCache({
+                  conversationId: resolvedConvId,
+                  title: resolvedTitle,
+                  messages: next,
+                  tripId: params.tripId,
+                  updatedAt: new Date().toISOString(),
+                })
+              }
+              return next
+            })
             setIsSending(false)
             scrollToEnd()
             if (shouldSpeakRef.current && reply.trim()) {
               shouldSpeakRef.current = false
               void speakReplyRef.current(reply)
+            }
+            if (openTripId) {
+              router.push(`/trip/${openTripId}` as never)
             }
           },
           onError: (msg) => {
@@ -184,6 +217,7 @@ export default function ChatScreen() {
       messages,
       params.tripId,
       pendingAttachments,
+      router,
       scrollToEnd,
     ],
   )
@@ -201,30 +235,57 @@ export default function ChatScreen() {
 
   useEffect(() => {
     void (async () => {
+      const cached = await loadChatSessionCache({
+        conversationId: params.conversationId,
+        tripId: params.tripId,
+      })
+      if (cached) {
+        setMessages(cached.messages)
+        setConversationId(cached.conversationId)
+        setConversationTitle(cached.title)
+      }
+
+      if (isOffline) return
+
       try {
-        const convId = params.conversationId ?? (await fetchLatestConversation())?.id
+        const convId =
+          params.conversationId ??
+          cached?.conversationId ??
+          (await fetchLatestConversation(params.tripId))?.id
         if (!convId) return
 
         const [conv, rows] = await Promise.all([
           fetchConversationById(convId),
           fetchConversationMessages(convId),
         ])
-        setMessages(
-          rows.map((r) => ({
+        const nextMessages = rows
+          .filter((r) => r.role === 'user' || r.role === 'assistant')
+          .map((r) => ({
             id: r.id,
-            role: r.role === 'assistant' ? 'assistant' : 'user',
+            role: r.role === 'assistant' ? ('assistant' as const) : ('user' as const),
             content: r.content,
             timestamp: formatTime(new Date(r.created_at)),
             attachments: r.attachments,
-          })),
-        )
+          }))
+        setMessages(nextMessages)
         setConversationId(convId)
-        if (conv?.title) setConversationTitle(conv.title)
+        const title = conv?.title ?? DEFAULT_HEADER_TITLE
+        if (conv?.title) setConversationTitle(title)
+
+        await saveChatSessionCache({
+          conversationId: convId,
+          title,
+          messages: nextMessages,
+          tripId: params.tripId,
+          updatedAt: new Date().toISOString(),
+        })
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not load history')
+        if (!cached) {
+          setError(e instanceof Error ? e.message : 'Could not load history')
+        }
       }
     })()
-  }, [params.conversationId, user?.id])
+  }, [params.conversationId, params.tripId, user?.id, isOffline])
 
   const handleNewChat = useCallback(async () => {
     await voice.interrupt()
@@ -373,7 +434,11 @@ export default function ChatScreen() {
           contentContainerStyle={{
             paddingHorizontal: listPadX,
             paddingTop: 16,
-            paddingBottom: 12 + (Platform.OS === 'android' ? keyboardInset : 0),
+            paddingBottom:
+              16 +
+              (Platform.OS === 'android' && isKeyboardOpen
+                ? keyboardInset + 72
+                : tabInsets.composerBottomPadding * 0.35),
             flexGrow: 1,
           }}
           keyboardShouldPersistTaps="handled"
@@ -388,7 +453,7 @@ export default function ChatScreen() {
                   width: 72,
                   height: 72,
                   borderRadius: 36,
-                  backgroundColor: brand.primaryLight,
+                  backgroundColor: theme.colors.aiMuted,
                   alignItems: 'center',
                   justifyContent: 'center',
                   marginBottom: 20,
@@ -477,9 +542,7 @@ export default function ChatScreen() {
           canSend={canSend}
           isSending={isSending}
           voicePhase={voice.phase}
-          paddingHorizontal={listPadX}
           paddingBottom={composerBottomPad}
-          contentWidth={contentWidth}
         />
       </KeyboardAvoidingView>
     </View>

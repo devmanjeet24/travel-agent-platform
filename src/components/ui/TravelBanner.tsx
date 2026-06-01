@@ -1,9 +1,12 @@
-import { Image, Pressable, Text, View } from 'react-native'
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native'
 import { ArrowRight } from 'lucide-react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 
-import { brand } from '@/constants/design'
+import { spacing } from '@/constants/design'
+import { textWithWeight } from '@/constants/inter-typography'
+import { typography } from '@/constants/typography'
 import { useResponsive } from '@/hooks/use-responsive'
-import { cardShadow, radii } from '@/lib/ui-styles'
+import { radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 interface Props {
@@ -11,66 +14,85 @@ interface Props {
   subtitle: string
   image: string
   cta: string
+  width: number
+  height: number
   onPress?: () => void
 }
 
-export function TravelBanner({ title, subtitle, image, cta, onPress }: Props) {
+export function TravelBanner({ title, subtitle, image, cta, width, height, onPress }: Props) {
   const theme = useThemedStyles()
-  const { bannerWidth, scaleFont, isSmallPhone } = useResponsive()
-  const bannerHeight = Math.min(bannerWidth * 0.58, isSmallPhone ? 150 : 180)
+  const { scaleFont, isSmallPhone } = useResponsive()
 
   return (
     <Pressable
       onPress={onPress}
-      style={[
-        {
-          width: bannerWidth,
-          marginRight: 14,
-          borderRadius: radii.xl,
-          overflow: 'hidden',
-          height: bannerHeight,
-        },
-        cardShadow(theme.isDark),
-      ]}
+      style={({ pressed }) => ({ opacity: pressed ? 0.96 : 1 })}
     >
-      <Image source={{ uri: image }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-      <View
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.4)',
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          padding: isSmallPhone ? 14 : 18,
-          justifyContent: 'flex-end',
-        }}
-      >
-        <Text style={{ color: '#FFFFFF', fontSize: scaleFont(18), fontWeight: '800' }} numberOfLines={1}>
-          {title}
-        </Text>
-        <Text
-          style={{ color: 'rgba(255,255,255,0.9)', fontSize: scaleFont(12), marginTop: 4 }}
-          numberOfLines={2}
+      <View style={[styles.card, { width, height, backgroundColor: theme.colors.muted }]}>
+        <Image source={{ uri: image }} style={{ width, height }} resizeMode="cover" />
+        <LinearGradient
+          colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.78)']}
+          locations={[0, 0.45, 1]}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              padding: isSmallPhone ? spacing.lg : spacing.xl,
+              justifyContent: 'flex-end',
+            },
+          ]}
         >
-          {subtitle}
-        </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
-          <Text style={{ color: brand.primary, fontWeight: '700', fontSize: scaleFont(13) }}>{cta}</Text>
-          <ArrowRight size={16} color={brand.primary} />
+          <Text
+            style={textWithWeight(typography.h2, '700', {
+              color: '#FFFFFF',
+              fontSize: scaleFont(17),
+              letterSpacing: -0.3,
+            })}
+            numberOfLines={1}
+          >
+            {title}
+          </Text>
+          <Text
+            style={{
+              color: 'rgba(255,255,255,0.88)',
+              fontSize: scaleFont(12),
+              marginTop: spacing.xs,
+              lineHeight: 18,
+            }}
+            numberOfLines={2}
+          >
+            {subtitle}
+          </Text>
+          <View style={styles.ctaRow}>
+            <Text
+              style={textWithWeight(typography.caption, '700', {
+                color: '#FFFFFF',
+                fontSize: scaleFont(12),
+              })}
+            >
+              {cta}
+            </Text>
+            <ArrowRight size={14} color="#FFFFFF" style={{ marginLeft: 6 }} />
+          </View>
         </View>
       </View>
     </Pressable>
   )
 }
+
+const styles = StyleSheet.create({
+  card: {
+    borderRadius: radii['2xl'],
+    overflow: 'hidden',
+    elevation: 0,
+  },
+  ctaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+})
 
 export default TravelBanner

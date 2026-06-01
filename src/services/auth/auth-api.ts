@@ -20,6 +20,34 @@ export function formatAuthError(error: AuthError): string {
     return 'Invalid email or password. If you just signed up, confirm your email first.';
   }
 
+  if (
+    error.code === 'weak_password' ||
+    message.includes('password should be at least') ||
+    message.includes('weak password')
+  ) {
+    return 'Choose a stronger password (at least 8 characters).';
+  }
+
+  if (
+    error.code === 'user_already_registered' ||
+    message.includes('already registered') ||
+    message.includes('already been registered')
+  ) {
+    return 'An account with this email already exists. Try signing in instead.';
+  }
+
+  if (message.includes('rate limit') || message.includes('too many requests')) {
+    return 'Too many attempts. Please wait a moment and try again.';
+  }
+
+  if (message.includes('invalid email') || error.code === 'email_address_invalid') {
+    return 'Enter a valid email address.';
+  }
+
+  if (message.includes('signup is disabled')) {
+    return 'New sign-ups are temporarily unavailable. Please try again later.';
+  }
+
   return error.message;
 }
 

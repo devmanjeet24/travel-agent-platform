@@ -1,10 +1,26 @@
-export function formatChatInvokeError(
-  error: { message: string; context?: unknown },
+function errorFromPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const msg = (payload as { error?: string }).error;
+  return typeof msg === 'string' && msg.trim() ? msg.trim() : null;
+}
+
+/** Extract the Edge Function JSON error body from invoke failures. */
+export async function formatChatInvokeError(
+  error: { message: string; context?: unknown; name?: string },
   data: unknown,
-): string {
-  if (data && typeof data === 'object' && data !== null && 'error' in data) {
-    const msg = (data as { error?: string }).error;
-    if (typeof msg === 'string' && msg.trim()) return msg;
+): Promise<string> {
+  const fromData = errorFromPayload(data);
+  if (fromData) return fromData;
+
+  const context = error.context;
+  if (context && typeof context === 'object' && 'json' in context) {
+    try {
+      const payload = await (context as Response).json();
+      const fromContext = errorFromPayload(payload);
+      if (fromContext) return fromContext;
+    } catch {
+      /* ignore parse errors */
+    }
   }
 
   const msg = error.message;
@@ -16,6 +32,10 @@ export function formatChatInvokeError(
     );
   }
 
+  if (msg.includes('non-2xx')) {
+    return 'Chat request failed on the server. Redeploy with: supabase functions deploy chat — then check Edge Functions → chat → Logs in Supabase.';
+  }
+
   return msg;
 }
 
@@ -23,6 +43,8 @@ export type ParsedChatResponse = {
   reply: string | null;
   conversationId?: string;
   warning?: string;
+  tripId?: string;
+  openTripId?: string;
 };
 
 export function parseChatReply(data: unknown): ParsedChatResponse {
@@ -33,6 +55,8 @@ export function parseChatReply(data: unknown): ParsedChatResponse {
     reply?: string;
     conversationId?: string;
     warning?: string;
+    tripId?: string;
+    openTripId?: string;
     error?: string;
   };
   if (obj.error) {
@@ -43,5 +67,7 @@ export function parseChatReply(data: unknown): ParsedChatResponse {
     reply: reply || null,
     conversationId: obj.conversationId,
     warning: obj.warning,
+    tripId: obj.tripId,
+    openTripId: obj.openTripId,
   };
 }

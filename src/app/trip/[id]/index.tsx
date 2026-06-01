@@ -89,6 +89,7 @@ export default function TripOverviewScreen() {
         startDate: trip.start_date ?? undefined,
         endDate: trip.end_date ?? undefined,
         budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+        travelers: trip.travelers,
         destinationLat: trip.destination_lat,
         destinationLon: trip.destination_lon,
       })
@@ -101,13 +102,16 @@ export default function TripOverviewScreen() {
           budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
           travelers: trip.travelers,
         })
-        if (policy?.includeFlights) {
+        if (policy) {
           await searchAndCacheFlights({
             tripId: trip.id,
             origin: trip.origin_city,
             destination: trip.destination,
             departDate: trip.start_date,
+            startDate: trip.start_date,
+            endDate: trip.end_date ?? undefined,
             budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+            travelers: trip.travelers,
           })
           void queryClient.invalidateQueries({ queryKey: tripKeys.flights(trip.id) })
         }
@@ -119,8 +123,8 @@ export default function TripOverviewScreen() {
       Alert.alert(
         'Travel data updated',
         trip.origin_city
-          ? 'OpenStreetMap hotels saved. Flights refreshed only when recommended for this route.'
-          : 'OpenStreetMap hotels saved to this trip.',
+          ? 'Real hotel listings saved. Flights refreshed only when recommended for this route.'
+          : 'Real hotel listings saved to this trip.',
       )
     } catch (e) {
       Alert.alert('Search failed', e instanceof Error ? e.message : 'Unknown error')
@@ -162,7 +166,7 @@ export default function TripOverviewScreen() {
             : 'Set origin city to load options'
 
   const hotelsHint = hotelPreview.length
-    ? `${hotels?.length ?? hotelPreview.length} real listings (OpenStreetMap)`
+    ? `${hotels?.length ?? hotelPreview.length} real hotel listings`
     : hotelsLoading
       ? 'Loading hotels…'
       : 'Tap refresh for OpenStreetMap hotels'
@@ -224,8 +228,8 @@ export default function TripOverviewScreen() {
             <Text className={`${theme.textMuted} text-sm`}>
               {trip.origin_city
                 ? preferGround
-                  ? 'Regenerate your AI plan to add train, bus, and local legs — or open Transport for flight estimates when recommended.'
-                  : 'Open Transport for flight estimates, or regenerate your plan for itinerary legs.'
+                  ? 'Regenerate your AI plan to add train, bus, and local legs — or open Transport for flight options when recommended.'
+                  : 'Open Transport for flight options, or regenerate your plan for itinerary legs.'
                 : 'Add an origin city (e.g. Delhi) when creating the trip, then regenerate the plan for train and bus options.'}
             </Text>
           )}
@@ -251,8 +255,8 @@ export default function TripOverviewScreen() {
           ) : (
             <Text className={`${theme.textMuted} text-sm`}>
               {trip.start_date && trip.end_date
-                ? 'No hotels loaded yet. Tap “Refresh hotels & transport” — we pull real property names, addresses, and photos from OpenStreetMap.'
-                : 'Add trip start and end dates, then refresh to load OpenStreetMap hotel listings.'}
+                ? 'No hotels loaded yet. Tap “Refresh hotels & transport” — we pull real property names, addresses, and photos from configured providers.'
+                : 'Add trip start and end dates, then refresh to load real hotel listings.'}
             </Text>
           )}
         </View>

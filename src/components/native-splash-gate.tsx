@@ -1,4 +1,5 @@
 import * as SplashScreen from 'expo-splash-screen';
+import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold, useFonts } from '@expo-google-fonts/inter';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { NATIVE_SPLASH_MIN_MS } from '@/lib/native-splash';
@@ -15,6 +16,13 @@ type Props = {
 export function NativeSplashGate({ children }: Props) {
   const { loading } = useAuth();
   const [minElapsed, setMinElapsed] = useState(false);
+  const [fontsLoaded, fontError] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => setMinElapsed(true), NATIVE_SPLASH_MIN_MS);
@@ -22,10 +30,10 @@ export function NativeSplashGate({ children }: Props) {
   }, []);
 
   useEffect(() => {
-    if (minElapsed && !loading) {
+    if (minElapsed && !loading && (fontsLoaded || !!fontError)) {
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [minElapsed, loading]);
+  }, [fontError, fontsLoaded, minElapsed, loading]);
 
   return <>{children}</>;
 }

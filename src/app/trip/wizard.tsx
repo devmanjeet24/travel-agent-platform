@@ -7,15 +7,14 @@ import { Button } from '@/components/ui/Button'
 import { DatePickerField } from '@/components/ui/DatePickerField'
 import { CityAutocompleteInput } from '@/components/ui/CityAutocompleteInput'
 import { Input } from '@/components/ui/Input'
-import { parseIsoDateString } from '@/utils/date-format'
 import { ScreenHeader } from '@/components/ui/ScreenHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
+import { parseIsoDateString } from '@/utils/date-format'
 import { useCreateTripMutation } from '@/hooks/trips/use-create-trip-mutation'
 import { usePlanTripMutation } from '@/hooks/trips/use-plan-trip-mutation'
-import { scheduleTripReminder } from '@/lib/notifications-setup'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
-import { useCreateTripNotificationsMutation } from '@/hooks/notifications/use-notifications-query'
+import { setupTripPushAndNotifications } from '@/services/push/trip-push-service'
 
 export default function TripWizardScreen() {
   const router = useRouter()
@@ -23,7 +22,6 @@ export default function TripWizardScreen() {
   const { user } = useAuth()
   const createTrip = useCreateTripMutation()
   const planTrip = usePlanTripMutation()
-  const createNotifications = useCreateTripNotificationsMutation()
 
   const [destination, setDestination] = useState('')
   const [title, setTitle] = useState('')
@@ -57,41 +55,17 @@ export default function TripWizardScreen() {
       await planTrip.mutateAsync(trip.id)
 
       if (user) {
-        void createNotifications
-          .mutateAsync({
-            userId: user.id,
-            tripId: trip.id,
-            destination: trip.destination,
-            startDate: trip.start_date,
-          })
-          .catch((notificationError) => {
-            console.warn(
-              'Could not create trip notifications:',
-              notificationError instanceof Error ? notificationError.message : notificationError,
-            )
-          })
-      }
-
-      const reminderStartDate = trip.start_date
-      if (reminderStartDate) {
-        void (async () => {
-          try {
-            const remind = parseIsoDateString(reminderStartDate)
-            if (remind) {
-              remind.setDate(remind.getDate() - 1)
-              await scheduleTripReminder({
-                title: 'Trip tomorrow',
-                body: `Your trip to ${trip.destination} starts soon.`,
-                triggerDate: remind,
-              })
-            }
-          } catch (reminderError) {
-            console.warn(
-              'Could not schedule trip reminder:',
-              reminderError instanceof Error ? reminderError.message : reminderError,
-            )
-          }
-        })()
+        void setupTripPushAndNotifications({
+          userId: user.id,
+          tripId: trip.id,
+          destination: trip.destination,
+          startDate: trip.start_date,
+        }).catch((notificationError) => {
+          console.warn(
+            'Could not set up trip notifications:',
+            notificationError instanceof Error ? notificationError.message : notificationError,
+          )
+        })
       }
 
       router.replace(`/trip/${trip.id}` as never)
@@ -100,7 +74,7 @@ export default function TripWizardScreen() {
     }
   }
 
-  const busy = createTrip.isPending || planTrip.isPending || createNotifications.isPending
+  const busy = createTrip.isPending || planTrip.isPending
 
   return (
     <RequireSession>

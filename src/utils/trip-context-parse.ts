@@ -17,12 +17,21 @@ export function parseTripContextFromMessage(text: string): ParsedTripContext {
   const destMatch = text.match(
     /(?:to|in|visit|trip to|going to)\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\s+with\s+|\.|,|$)/i,
   )
-  if (destMatch) ctx.destination = destMatch[1].trim()
+  if (destMatch) {
+    const destination = destMatch[1].trim()
+    const weak =
+      destination.length < 3 ||
+      /^(this|that|there|here)(\s+trip)?$/i.test(destination) ||
+      destination.toLowerCase() === 'this trip'
+    if (!weak) ctx.destination = destination
+  }
 
   const budgetInr = parseBudgetFromText(text)
   if (budgetInr != null) ctx.budgetInr = budgetInr
 
-  const travelersMatch = text.match(/(\d+)\s*(?:people|travelers|travellers|guests|pax)/i)
+  const travelersMatch = text.match(
+    /(\d+)\s*(?:people|travelers|travellers|guests|pax|friends?)/i,
+  )
   if (travelersMatch) ctx.travelers = Number(travelersMatch[1])
 
   const originMatch = text.match(

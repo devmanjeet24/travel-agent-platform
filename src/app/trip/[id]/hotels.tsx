@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ActivityIndicator, Alert, Text } from 'react-native'
+import { ActivityIndicator, Alert, Text, View } from 'react-native'
 import { useLocalSearchParams } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -34,6 +34,7 @@ export default function HotelsScreen() {
         startDate: trip.start_date ?? undefined,
         endDate: trip.end_date ?? undefined,
         budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+        travelers: trip.travelers,
         destinationLat: trip.destination_lat,
         destinationLon: trip.destination_lon,
       })
@@ -56,7 +57,7 @@ export default function HotelsScreen() {
   return (
     <TripScreenWrapper className={theme.bg}>
       <Button
-        title={hotelsSyncing ? 'Searching OpenStreetMap hotels…' : 'Refresh hotels'}
+        title={hotelsSyncing ? 'Searching hotel providers…' : 'Refresh hotels'}
         variant="outline"
         onPress={refresh}
         disabled={hotelsSyncing}
@@ -74,10 +75,12 @@ export default function HotelsScreen() {
         </Text>
       ) : !hotels?.length ? (
         <Text className={`${theme.textMuted} mt-6 text-center`}>
-          No OpenStreetMap hotels found for this destination yet. Tap refresh to search again.
+          No real hotels found for this destination yet. Tap refresh to search again.
         </Text>
       ) : (
-        hotels.map((h) => <TripHotelCard key={h.id} hotel={h} />)
+        <View className="mt-4">
+          {hotels.map((h) => <TripHotelCard key={h.id} hotel={h} />)}
+        </View>
       )}
     </TripScreenWrapper>
   )

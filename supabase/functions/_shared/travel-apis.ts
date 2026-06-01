@@ -1,10 +1,25 @@
-/** Geocoding, weather, hotels, and flights using free/public APIs (no API keys). */
+/** Geocoding, weather, hotels, flights, trains, and buses using public/optional-key APIs. */
 
 import { formatInr } from './currency.ts';
 import {
+  getCachedTravelContext,
+  setCachedTravelContext,
+  travelContextCacheKey,
+} from './travel-context-cache.ts';
+import {
+  buildIndianRailContext,
+  searchIndianTrains,
+} from './indian-rail-api.ts';
+import {
+  buildBusContext,
+  searchBusOptions,
+} from './bus-api.ts';
+import {
   analyzeRoute,
   buildTransportGuidanceBlock,
+  estimateBusPriceInr,
   estimateFlightPriceInr,
+  estimateTrainPriceInr,
   groundTransportEstimates,
   shouldIncludeFlights,
   tripDaysFromDates,
@@ -44,8 +59,22 @@ export type HotelOffer = {
   rating: number | null;
   pricePerNightUsd: number | null;
   imageUrl: string | null;
-  /** osm = named place from OSM; estimate = nightly INR heuristic when OSM has no rate */
-  source: 'osm' | 'estimate';
+  /** Provider/source for hotel identity. Prices are INR estimates unless raw.priceSource says provider. */
+  source: 'liteapi' | 'geoapify' | 'osm' | 'estimate';
+  raw: Record<string, unknown>;
+};
+
+export type PlaceOffer = {
+  id: string;
+  name: string;
+  category: 'restaurant' | 'place';
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  cuisine: string | null;
+  website: string | null;
+  phone: string | null;
+  source: 'geoapify' | 'osm' | 'nominatim-osm';
   raw: Record<string, unknown>;
 };
 
@@ -57,7 +86,7 @@ export type FlightOffer = {
   arriveTime: string;
   priceUsd: number | null;
   stops: string;
-  source: 'estimate' | 'osm';
+  source: 'estimate' | 'osm' | 'duffel';
   raw: Record<string, unknown>;
 };
 
@@ -73,6 +102,9 @@ const NOMINATIM_TIMEOUT_MS = 8_000;
 const OPEN_METEO_TIMEOUT_MS = 8_000;
 const OVERPASS_TIMEOUT_MS = 8_000;
 const WIKIDATA_TIMEOUT_MS = 5_000;
+const COMMONS_TIMEOUT_MS = 3_000;
+const LITEAPI_TIMEOUT_MS = 9_000;
+const GEOAPIFY_TIMEOUT_MS = 8_000;
 
 const NOMINATIM_HEADERS = {
   'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge; educational)',
@@ -84,6 +116,31 @@ const OVERPASS_HEADERS = {
   'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge; educational)',
 };
 
+type EnvGlobal = typeof globalThis & {
+  Deno?: {
+    env?: {
+      get(name: string): string | undefined;
+    };
+  };
+};
+
+function env(name: string): string | undefined {
+  return (globalThis as EnvGlobal).Deno?.env?.get(name);
+}
+
+function liteApiKey(): string | undefined {
+  return env('LITEAPI_KEY') ?? env('LITEAPI_API_KEY') ?? env('LITE_API_KEY');
+}
+
+function liteApiHotelSearchEnabled(): boolean {
+  const value = env('LITEAPI_HOTELS_ENABLED') ?? env('ENABLE_LITEAPI_HOTELS') ?? '';
+  return ['1', 'true', 'yes'].includes(value.trim().toLowerCase());
+}
+
+function geoapifyKey(): string | undefined {
+  return env('GEOAPIFY_API_KEY') ?? env('GEOAPIFY_KEY');
+}
+
 const PLACEHOLDER_IMAGE_HOSTS = [
   'loremflickr.com',
   'picsum.photos',
@@ -91,13 +148,18 @@ const PLACEHOLDER_IMAGE_HOSTS = [
   'via.placeholder.com',
   'source.unsplash.com',
 ] as const;
-const PLACEHOLDER_UNSPLASH_PHOTO_IDS = ['photo-1488646953014-85cb44e25828'] as const;
+const PLACEHOLDER_UNSPLASH_PHOTO_IDS = [
+  'photo-1488646953014-85cb44e25828',
+  'photo-1476514525535-07fb3b4ae5f1',
+  'photo-1507525428034-b723cf961d3e',
+] as const;
 
 const DESTINATION_IMAGE_OVERRIDES: Record<string, string> = {
   bali: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1200&q=80',
   indonesia: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1200&q=80',
   paris: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1200&q=80',
   france: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1200&q=80',
+  'paris france': 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1200&q=80',
   tokyo: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1200&q=80',
   japan: 'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1200&q=80',
   santorini: 'https://images.unsplash.com/photo-1613395877344-13f27c9eb15d?w=1200&q=80',
@@ -112,10 +174,14 @@ const DESTINATION_IMAGE_OVERRIDES: Record<string, string> = {
   australia: 'https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=1200&q=80',
   sydney: 'https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=1200&q=80',
   melbourne: 'https://images.unsplash.com/photo-1545044846-351ba102b6d5?w=1200&q=80',
+  'melbourne australia': 'https://images.unsplash.com/photo-1545044846-351ba102b6d5?w=1200&q=80',
   'new zealand': 'https://images.unsplash.com/photo-1469521669194-babb45599def?w=1200&q=80',
   auckland: 'https://images.unsplash.com/photo-1507699622108-4be3abd695ad?w=1200&q=80',
   queenstown: 'https://images.unsplash.com/photo-1589871973318-9ca1258faa5d?w=1200&q=80',
   dubai: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
+  uae: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
+  'united arab emirates': 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
+  'dubai uae': 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
   london: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&q=80',
   'new york': 'https://images.unsplash.com/photo-1485871981521-5b1fd3805eee?w=1200&q=80',
   usa: 'https://images.unsplash.com/photo-1485871981521-5b1fd3805eee?w=1200&q=80',
@@ -231,19 +297,99 @@ function parseOsmFeeInr(tags: Record<string, string>): number | null {
   return null;
 }
 
+export type HotelSearchOptions = {
+  budgetInr?: number;
+  tripDays?: number;
+  travelers?: number;
+};
+
+type HotelPriceSignals = {
+  name: string;
+  tourism?: string | null;
+  distanceKm?: number | null;
+};
+
+function normalizeHotelSearchOptions(input?: HotelSearchOptions | number): HotelSearchOptions {
+  return typeof input === 'number' ? { budgetInr: input } : (input ?? {});
+}
+
+function stableHash(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function tourismBasePriceInr(tourism?: string | null): number {
+  switch ((tourism ?? '').toLowerCase()) {
+    case 'hostel':
+      return 1500;
+    case 'guest_house':
+      return 2200;
+    case 'motel':
+      return 3000;
+    case 'apartment':
+      return 3200;
+    case 'chalet':
+      return 4200;
+    case 'resort':
+      return 7200;
+    case 'hotel':
+      return 4200;
+    default:
+      return 3200;
+  }
+}
+
+function starsBasePriceInr(stars: number | null): number | null {
+  if (!stars) return null;
+  if (stars >= 5) return 11000;
+  if (stars >= 4) return 7000;
+  if (stars >= 3) return 4500;
+  if (stars >= 2) return 2800;
+  return 1800;
+}
+
+function roundToNearestHundred(value: number): number {
+  return Math.round(value / 100) * 100;
+}
+
 function estimateHotelPriceInr(
   stars: number | null,
-  budgetInr?: number,
+  options?: HotelSearchOptions,
   osmFeeInr?: number | null,
+  signals?: HotelPriceSignals,
 ): number | null {
   if (osmFeeInr != null) return osmFeeInr;
-  if (budgetInr && budgetInr > 0) {
-    const nightly = Math.round(budgetInr / 7 / 2);
-    return Math.max(800, Math.min(nightly, 12000));
+  const tourism = signals?.tourism ?? null;
+  const name = signals?.name ?? '';
+  const distanceKm = signals?.distanceKm ?? null;
+  const baseFromStars = starsBasePriceInr(stars);
+  let estimate = baseFromStars ?? tourismBasePriceInr(tourism);
+
+  if (distanceKm != null) {
+    if (distanceKm <= 1.5) estimate *= 1.14;
+    else if (distanceKm <= 5) estimate *= 1.06;
+    else if (distanceKm >= 18) estimate *= 0.88;
+    else if (distanceKm >= 10) estimate *= 0.94;
   }
-  if (stars && stars >= 4) return 5500;
-  if (stars && stars >= 3) return 3500;
-  return 2200;
+
+  const budgetInr = options?.budgetInr;
+  if (budgetInr && budgetInr > 0) {
+    const travelers = Math.max(1, options?.travelers ?? 1);
+    const tripDays = Math.max(1, options?.tripDays ?? 7);
+    const roomCount = Math.max(1, Math.ceil(travelers / 2));
+    const perRoomNightBudget = Math.max(900, (budgetInr * 0.35) / tripDays / roomCount);
+    estimate = estimate * 0.65 + perRoomNightBudget * 0.35;
+  }
+
+  const variance = ((stableHash(name || tourism || 'hotel') % 25) - 12) / 100;
+  estimate *= 1 + variance;
+
+  const min = tourism === 'hostel' ? 700 : 1000;
+  const max = stars && stars >= 5 ? 35_000 : tourism === 'resort' ? 28_000 : 22_000;
+  return Math.max(min, Math.min(roundToNearestHundred(estimate), max));
 }
 
 function isLowBudgetHotels(budgetInr?: number): boolean {
@@ -759,6 +905,298 @@ async function wikidataImageUrl(wikidataTag: string): Promise<string | null> {
   return null;
 }
 
+async function commonsImageUrlForSearch(query: string): Promise<string | null> {
+  const q = query.trim();
+  if (!q) return null;
+  try {
+    const url = new URL('https://commons.wikimedia.org/w/api.php');
+    url.searchParams.set('action', 'query');
+    url.searchParams.set('generator', 'search');
+    url.searchParams.set('gsrnamespace', '6');
+    url.searchParams.set('gsrsearch', q);
+    url.searchParams.set('gsrlimit', '3');
+    url.searchParams.set('prop', 'imageinfo');
+    url.searchParams.set('iiprop', 'url');
+    url.searchParams.set('iiurlwidth', '800');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('origin', '*');
+    const res = await fetchWithTimeout(
+      url.toString(),
+      { headers: { 'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge)' } },
+      COMMONS_TIMEOUT_MS,
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const pages = Object.values(data?.query?.pages ?? {}) as Array<{
+      imageinfo?: Array<{ thumburl?: string; url?: string }>;
+    }>;
+    for (const page of pages) {
+      const image = page.imageinfo?.[0]?.thumburl ?? page.imageinfo?.[0]?.url;
+      if (typeof image === 'string' && image.startsWith('http')) return image;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+async function hotelImageFromSearch(
+  name: string,
+  geo: GeoResult,
+): Promise<string | null> {
+  const place = geo.name.trim();
+  const queries = [
+    `${name} ${place}`,
+    `${name} hotel ${place}`,
+  ].filter((query, index, queries): query is string =>
+    Boolean(query.trim()) && queries.indexOf(query) === index
+  );
+
+  for (const query of queries) {
+    const wikidata = await wikidataImageUrlForSearch(query);
+    if (wikidata) return wikidata;
+    const commons = await commonsImageUrlForSearch(query);
+    if (commons) return commons;
+  }
+  return null;
+}
+
+type LiteApiHotel = {
+  id?: string;
+  name?: string;
+  country?: string;
+  city?: string;
+  latitude?: number | string;
+  longitude?: number | string;
+  address?: string | null;
+  main_photo?: string | null;
+  thumbnail?: string | null;
+  stars?: number | string | null;
+  rating?: number | string | null;
+  reviewCount?: number | string | null;
+  chain?: string | null;
+  hotelDescription?: string | null;
+};
+
+type GeoapifyFeature = {
+  properties?: Record<string, unknown>;
+  geometry?: {
+    coordinates?: [number, number];
+  };
+};
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value.replace(/,/g, ''));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function normalizedRating(value: unknown): number | null {
+  const n = asNumber(value);
+  if (n == null || n <= 0) return null;
+  return Math.min(5, Math.max(1, Math.round(n > 5 ? n / 2 : n)));
+}
+
+function geoapifyFeatureCoord(feature: GeoapifyFeature): { lat: number; lon: number } | null {
+  const props = feature.properties ?? {};
+  const propLat = asNumber(props.lat);
+  const propLon = asNumber(props.lon);
+  if (propLat != null && propLon != null && isValidLatLon(propLat, propLon)) {
+    return { lat: propLat, lon: propLon };
+  }
+  const [lon, lat] = feature.geometry?.coordinates ?? [];
+  return lat != null && lon != null && isValidLatLon(lat, lon) ? { lat, lon } : null;
+}
+
+async function searchHotelsLiteApi(
+  geo: GeoResult,
+  options?: HotelSearchOptions,
+): Promise<HotelOffer[]> {
+  const key = liteApiKey();
+  if (!key) return [];
+
+  const url = new URL('https://api.liteapi.travel/v3.0/data/hotels');
+  url.searchParams.set('latitude', String(geo.lat));
+  url.searchParams.set('longitude', String(geo.lon));
+  url.searchParams.set('radius', '30000');
+  url.searchParams.set('limit', '20');
+  url.searchParams.set('timeout', '3');
+
+  try {
+    const res = await fetchWithTimeout(
+      url.toString(),
+      { headers: { 'X-API-Key': key, 'Accept': 'application/json' } },
+      LITEAPI_TIMEOUT_MS,
+    );
+    if (!res.ok) {
+      console.warn('[travel-apis] LiteAPI hotel search failed', {
+        searchedFrom: geo.displayName,
+        status: res.status,
+      });
+      return [];
+    }
+    const data = await res.json();
+    const hotels = (Array.isArray(data?.data) ? data.data : []) as LiteApiHotel[];
+    const offers = hotels
+      .map((hotel, index): HotelOffer | null => {
+        const lat = asNumber(hotel.latitude);
+        const lon = asNumber(hotel.longitude);
+        const name = hotel.name?.trim();
+        if (!name || lat == null || lon == null || !isValidLatLon(lat, lon)) return null;
+        const distanceKm = Math.round(haversineKm(geo.lat, geo.lon, lat, lon) * 10) / 10;
+        if (distanceKm > 75) return null;
+        const stars = normalizedRating(hotel.stars);
+        const imageUrl = hotel.main_photo?.trim() || hotel.thumbnail?.trim() || null;
+        const address = hotel.address?.trim() ||
+          [hotel.city, hotel.country].filter(Boolean).join(', ') ||
+          null;
+        return {
+          id: `liteapi/${hotel.id ?? `${lat.toFixed(6)},${lon.toFixed(6)}/${index}`}`,
+          name,
+          rating: stars,
+          pricePerNightUsd: estimateHotelPriceInr(stars, options, null, {
+            name,
+            tourism: 'hotel',
+            distanceKm,
+          }),
+          imageUrl,
+          source: 'liteapi',
+          raw: {
+            source: 'liteapi',
+            provider: 'LiteAPI hotel data',
+            address,
+            city: hotel.city ?? null,
+            country: hotel.country ?? null,
+            chain: hotel.chain ?? null,
+            reviewRating: asNumber(hotel.rating),
+            reviewCount: asNumber(hotel.reviewCount),
+            description: hotel.hotelDescription ?? null,
+            distanceKm,
+            coord: { lat, lon },
+            priceSource: 'estimate',
+            priceNote: 'Estimated nightly rate from property rating, location, and trip budget - not a live LiteAPI room rate',
+            rawHotel: hotel,
+          },
+        };
+      })
+      .filter((offer): offer is HotelOffer => Boolean(offer))
+      .sort((a, b) => Number(a.raw.distanceKm ?? 999) - Number(b.raw.distanceKm ?? 999))
+      .slice(0, 8);
+
+    console.debug('[travel-apis] LiteAPI hotel response', {
+      searchedFrom: geo.displayName,
+      hotelCount: offers.length,
+      sampleNames: offers.slice(0, 5).map((offer) => offer.name),
+    });
+    return offers;
+  } catch (error) {
+    console.warn('[travel-apis] LiteAPI hotel search threw', {
+      searchedFrom: geo.displayName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
+async function searchHotelsGeoapify(
+  geo: GeoResult,
+  options?: HotelSearchOptions,
+): Promise<HotelOffer[]> {
+  const key = geoapifyKey();
+  if (!key) return [];
+
+  const url = new URL('https://api.geoapify.com/v2/places');
+  url.searchParams.set(
+    'categories',
+    'accommodation.hotel,accommodation.hostel,accommodation.guest_house,accommodation.motel,accommodation.apartment',
+  );
+  url.searchParams.set('filter', `circle:${geo.lon},${geo.lat},30000`);
+  url.searchParams.set('bias', `proximity:${geo.lon},${geo.lat}`);
+  url.searchParams.set('limit', '20');
+  url.searchParams.set('lang', 'en');
+  url.searchParams.set('apiKey', key);
+
+  try {
+    const res = await fetchWithTimeout(url.toString(), {}, GEOAPIFY_TIMEOUT_MS);
+    if (!res.ok) {
+      console.warn('[travel-apis] Geoapify hotel search failed', {
+        searchedFrom: geo.displayName,
+        status: res.status,
+      });
+      return [];
+    }
+    const data = await res.json();
+    const features = (Array.isArray(data?.features) ? data.features : []) as GeoapifyFeature[];
+    const seen = new Set<string>();
+    const offers = features
+      .map((feature, index): HotelOffer | null => {
+        const props = feature.properties ?? {};
+        const coord = geoapifyFeatureCoord(feature);
+        const name = asString(props.name) || asString(props.address_line1);
+        if (!coord || !name || /^hotel\s*\d*$/i.test(name)) return null;
+        const key = `${name.toLowerCase()}|${coord.lat.toFixed(5)},${coord.lon.toFixed(5)}`;
+        if (seen.has(key)) return null;
+        seen.add(key);
+        const distanceKm = Math.round(haversineKm(geo.lat, geo.lon, coord.lat, coord.lon) * 10) / 10;
+        const categories = Array.isArray(props.categories) ? props.categories : [];
+        const tourism = categories.find((category) => typeof category === 'string' && category.startsWith('accommodation.')) ??
+          'hotel';
+        const address = asString(props.formatted) ||
+          [asString(props.address_line1), asString(props.address_line2)].filter(Boolean).join(', ') ||
+          null;
+        const stars = normalizedRating(props.stars);
+        return {
+          id: `geoapify/${asString(props.place_id) || `${coord.lat.toFixed(6)},${coord.lon.toFixed(6)}/${index}`}`,
+          name,
+          rating: stars,
+          pricePerNightUsd: estimateHotelPriceInr(stars, options, null, {
+            name,
+            tourism: typeof tourism === 'string' ? tourism.replace('accommodation.', '') : 'hotel',
+            distanceKm,
+          }),
+          imageUrl: null,
+          source: 'geoapify',
+          raw: {
+            source: 'geoapify',
+            provider: 'Geoapify Places',
+            address,
+            website: asString(props.website) || null,
+            phone: asString(props.contact_phone) || asString(props.phone) || null,
+            categories,
+            distanceKm,
+            coord,
+            priceSource: 'estimate',
+            priceNote: 'Estimated nightly rate from property type, location, and trip budget - not a live booking price',
+            rawPlace: props,
+          },
+        };
+      })
+      .filter((offer): offer is HotelOffer => Boolean(offer))
+      .sort((a, b) => Number(a.raw.distanceKm ?? 999) - Number(b.raw.distanceKm ?? 999))
+      .slice(0, 8);
+
+    console.debug('[travel-apis] Geoapify hotel response', {
+      searchedFrom: geo.displayName,
+      hotelCount: offers.length,
+      sampleNames: offers.slice(0, 5).map((offer) => offer.name),
+    });
+    return offers;
+  } catch (error) {
+    console.warn('[travel-apis] Geoapify hotel search threw', {
+      searchedFrom: geo.displayName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
 function hotelQualityScore(
   el: OsmElement,
   geo: GeoResult,
@@ -876,7 +1314,7 @@ out body;
     elements = await overpassQuery(townQuery);
   }
   return elements
-    .map((el) => {
+    .map((el): { score: number; geo: GeoResult } | null => {
       const tags = el.tags ?? {};
       const coord = elementCoord(el);
       const name = tags['name:en']?.trim() || tags.name?.trim();
@@ -888,19 +1326,17 @@ out body;
           ? 5_000_000
           : 0;
       const cityBoost = tags.place === 'city' ? 1_000_000 : 0;
-      return {
-        score: population + capitalBoost + cityBoost,
-        geo: {
-          name,
-          country: geo.country,
-          countryCode: geo.countryCode,
-          lat: coord.lat,
-          lon: coord.lon,
-          displayName: geo.country ? `${name}, ${geo.country}` : name,
-          placeType: 'city',
-          imageUrl: null,
-        } satisfies GeoResult,
+      const anchorGeo: GeoResult = {
+        name,
+        country: geo.country,
+        countryCode: geo.countryCode,
+        lat: coord.lat,
+        lon: coord.lon,
+        displayName: geo.country ? `${name}, ${geo.country}` : name,
+        placeType: 'city',
+        imageUrl: null,
       };
+      return { score: population + capitalBoost + cityBoost, geo: anchorGeo };
     })
     .filter((item): item is { score: number; geo: GeoResult } => Boolean(item))
     .sort((a, b) => b.score - a.score)
@@ -962,11 +1398,17 @@ function hotelFallbackQueries(geo: GeoResult): string[] {
 
 async function searchHotelsNominatimFallback(
   geo: GeoResult,
-  budgetInr?: number,
+  options?: HotelSearchOptions,
 ): Promise<HotelOffer[]> {
   const offers: HotelOffer[] = [];
   const seen = new Set<string>();
   let hitCount = 0;
+  const destinationImageUrl = geo.imageUrl ?? knownDestinationImageUrl([
+    geo.displayName,
+    geo.name,
+    geo.country,
+  ]);
+  let imageSearches = 0;
 
   for (const query of hotelFallbackQueries(geo)) {
     const url = new URL(`${NOMINATIM}/search`);
@@ -1010,12 +1452,25 @@ async function searchHotelsNominatimFallback(
       const distanceKm = Math.round(haversineKm(geo.lat, geo.lon, lat, lon) * 10) / 10;
       const tags = hit.extratags ?? {};
       const stars = parseStars(tags);
+      let imageUrl = osmImageFromTags(tags);
+      if (!imageUrl && tags.wikidata) {
+        imageUrl = await wikidataImageUrl(tags.wikidata);
+      }
+      if (!imageUrl && imageSearches < 2) {
+        imageSearches += 1;
+        imageUrl = await hotelImageFromSearch(name, geo);
+      }
+      const imageSource = imageUrl ? 'hotel' : destinationImageUrl ? 'destination' : null;
       offers.push({
         id: `nominatim/${lat.toFixed(6)},${lon.toFixed(6)}/${index}`,
         name,
         rating: stars,
-        pricePerNightUsd: estimateHotelPriceInr(stars, budgetInr),
-        imageUrl: osmImageFromTags(tags),
+        pricePerNightUsd: estimateHotelPriceInr(stars, options, null, {
+          name,
+          tourism: tags.tourism,
+          distanceKm,
+        }),
+        imageUrl,
         source: 'osm' as const,
         raw: {
           source: 'nominatim-osm',
@@ -1025,8 +1480,10 @@ async function searchHotelsNominatimFallback(
           fallbackQuery: query,
           coord: { lat, lon },
           osm: { tags },
+          destinationImageUrl,
+          imageSource,
           priceSource: 'estimate',
-          priceNote: 'Estimated nightly rate — OSM has no live room prices for this property',
+          priceNote: 'Estimated nightly rate from property type, location, and trip budget - not a live booking price',
         },
       });
     }
@@ -1054,11 +1511,23 @@ async function searchHotelsNominatimFallback(
 /** Real hotels from OpenStreetMap — names, addresses, images; nightly INR is estimated when OSM has no rate. */
 export async function searchHotelsOsm(
   geo: GeoResult,
-  budgetInr?: number,
+  optionsOrBudget?: HotelSearchOptions | number,
 ): Promise<{ offers: HotelOffer[]; error?: string }> {
+  const options = normalizeHotelSearchOptions(optionsOrBudget);
+  const budgetInr = options.budgetInr;
+  const geoapifyHotels = await searchHotelsGeoapify(geo, options);
+  if (geoapifyHotels.length) {
+    return { offers: geoapifyHotels };
+  }
+
   let named: OsmElement[] = [];
   let hotelGeo = geo;
-  let searchRadiusMeters = HOTEL_SEARCH_RADII_METERS[0];
+  let searchRadiusMeters: number = HOTEL_SEARCH_RADII_METERS[0];
+  let destinationImageUrl = geo.imageUrl ?? knownDestinationImageUrl([
+    geo.displayName,
+    geo.name,
+    geo.country,
+  ]);
 
   const searchAround = async (candidateGeo: GeoResult) => {
     const finalRadius = HOTEL_SEARCH_RADII_METERS[HOTEL_SEARCH_RADII_METERS.length - 1];
@@ -1109,9 +1578,13 @@ export async function searchHotelsOsm(
       searchedFrom: geo.displayName,
       error: e instanceof Error ? e.message : String(e),
     });
-    const fallbackOffers = await searchHotelsNominatimFallback(geo, budgetInr);
+    const fallbackOffers = await searchHotelsNominatimFallback(geo, options);
     if (fallbackOffers.length) {
       return { offers: fallbackOffers };
+    }
+    if (liteApiHotelSearchEnabled()) {
+      const liteApiHotels = await searchHotelsLiteApi(geo, options);
+      if (liteApiHotels.length) return { offers: liteApiHotels };
     }
     return {
       offers: [],
@@ -1127,10 +1600,14 @@ export async function searchHotelsOsm(
       fallbackGeos.push(...anchors);
     }
     for (const fallbackGeo of fallbackGeos) {
-      const fallbackOffers = await searchHotelsNominatimFallback(fallbackGeo, budgetInr);
+      const fallbackOffers = await searchHotelsNominatimFallback(fallbackGeo, options);
       if (fallbackOffers.length) {
         return { offers: fallbackOffers };
       }
+    }
+    if (liteApiHotelSearchEnabled()) {
+      const liteApiHotels = await searchHotelsLiteApi(geo, options);
+      if (liteApiHotels.length) return { offers: liteApiHotels };
     }
     console.warn('[travel-apis] no named hotels after all searches', {
       searchedFrom: hotelGeo.displayName,
@@ -1147,6 +1624,13 @@ export async function searchHotelsOsm(
 
   const offers: HotelOffer[] = [];
   let wikidataFetches = 0;
+  let imageSearches = 0;
+
+  destinationImageUrl ??= hotelGeo.imageUrl ?? knownDestinationImageUrl([
+    hotelGeo.displayName,
+    hotelGeo.name,
+    hotelGeo.country,
+  ]);
 
   for (const el of named) {
     const tags = el.tags ?? {};
@@ -1166,10 +1650,19 @@ export async function searchHotelsOsm(
         : hotelGeo.displayName);
 
     const osmFeeInr = parseOsmFeeInr(tags);
-    const pricePerNight = estimateHotelPriceInr(stars, budgetInr, osmFeeInr);
     const distanceKm = coord
       ? Math.round(haversineKm(hotelGeo.lat, hotelGeo.lon, coord.lat, coord.lon) * 10) / 10
       : null;
+    if (!imageUrl && imageSearches < 3) {
+      imageSearches += 1;
+      imageUrl = await hotelImageFromSearch(name, hotelGeo);
+    }
+    const imageSource = imageUrl ? 'hotel' : destinationImageUrl ? 'destination' : null;
+    const pricePerNight = estimateHotelPriceInr(stars, options, osmFeeInr, {
+      name,
+      tourism: tags.tourism,
+      distanceKm,
+    });
 
     offers.push({
       id: `${el.type}/${el.id}`,
@@ -1186,10 +1679,12 @@ export async function searchHotelsOsm(
         brand: tags.brand ?? null,
         tourism: tags.tourism ?? null,
         distanceKm,
+        destinationImageUrl,
+        imageSource,
         priceSource: osmFeeInr != null ? 'osm_fee' : 'estimate',
         priceNote: osmFeeInr != null
           ? 'Nightly rate from OpenStreetMap fee tag'
-          : 'Estimated nightly rate — OSM has no live room prices for this property',
+          : 'Estimated nightly rate from property type, location, and trip budget - not a live booking price',
         searchRadiusMeters,
         searchedFrom: hotelGeo.displayName,
         osm: { type: el.type, id: el.id, tags },
@@ -1203,7 +1698,330 @@ export async function searchHotelsOsm(
   return { offers };
 }
 
-type AirportPoint = {
+const RESTAURANT_AMENITIES = 'restaurant|cafe|fast_food|food_court|pub|bar';
+const PLACE_TOURISM_VALUES = 'attraction|museum|gallery|viewpoint|zoo|aquarium|theme_park';
+const PLACE_SEARCH_RADII_METERS = [8000, 20000, 40000] as const;
+
+function placeCategoryFromOsm(tags: Record<string, string>): 'restaurant' | 'place' | null {
+  if (tags.amenity && new RegExp(`^(${RESTAURANT_AMENITIES})$`).test(tags.amenity)) {
+    return 'restaurant';
+  }
+  if (tags.tourism && new RegExp(`^(${PLACE_TOURISM_VALUES})$`).test(tags.tourism)) {
+    return 'place';
+  }
+  if (tags.historic || tags.leisure === 'park') return 'place';
+  return null;
+}
+
+function osmPlaceName(tags: Record<string, string>): string | null {
+  const name = tags.name?.trim() || tags['name:en']?.trim() || tags.brand?.trim();
+  if (!name) return null;
+  if (/^(restaurant|cafe|food|place|attraction)\s*\d*$/i.test(name)) return null;
+  return name;
+}
+
+function osmPlaceAddress(tags: Record<string, string>): string | null {
+  return osmHotelAddress(tags);
+}
+
+function placeOverpassQuery(geo: GeoResult, radiusMeters: number): string {
+  return `
+[out:json][timeout:8];
+(
+  node["amenity"~"${RESTAURANT_AMENITIES}"](around:${radiusMeters},${geo.lat},${geo.lon});
+  way["amenity"~"${RESTAURANT_AMENITIES}"](around:${radiusMeters},${geo.lat},${geo.lon});
+  relation["amenity"~"${RESTAURANT_AMENITIES}"](around:${radiusMeters},${geo.lat},${geo.lon});
+  node["tourism"~"${PLACE_TOURISM_VALUES}"](around:${radiusMeters},${geo.lat},${geo.lon});
+  way["tourism"~"${PLACE_TOURISM_VALUES}"](around:${radiusMeters},${geo.lat},${geo.lon});
+  relation["tourism"~"${PLACE_TOURISM_VALUES}"](around:${radiusMeters},${geo.lat},${geo.lon});
+  node["historic"]["name"](around:${Math.min(radiusMeters, 20000)},${geo.lat},${geo.lon});
+  way["historic"]["name"](around:${Math.min(radiusMeters, 20000)},${geo.lat},${geo.lon});
+  node["leisure"="park"]["name"](around:${Math.min(radiusMeters, 20000)},${geo.lat},${geo.lon});
+  way["leisure"="park"]["name"](around:${Math.min(radiusMeters, 20000)},${geo.lat},${geo.lon});
+);
+out body center 80;
+`;
+}
+
+function placeQualityScore(place: PlaceOffer, geo: GeoResult): number {
+  const distanceKm = Number(place.raw.distanceKm ?? haversineKm(geo.lat, geo.lon, place.latitude, place.longitude));
+  let score = Math.max(0, 12 - distanceKm);
+  if (place.category === 'restaurant') score += 2;
+  if (place.website) score += 1;
+  if (place.phone) score += 1;
+  if (place.address) score += 1;
+  return score;
+}
+
+async function searchPlacesGeoapify(
+  geo: GeoResult,
+  maxItems: number,
+): Promise<PlaceOffer[]> {
+  const key = geoapifyKey();
+  if (!key) return [];
+
+  const url = new URL('https://api.geoapify.com/v2/places');
+  url.searchParams.set(
+    'categories',
+    'catering.restaurant,catering.cafe,catering.fast_food,catering.pub,catering.bar,tourism.sights,entertainment.museum,entertainment.culture',
+  );
+  url.searchParams.set('filter', `circle:${geo.lon},${geo.lat},30000`);
+  url.searchParams.set('bias', `proximity:${geo.lon},${geo.lat}`);
+  url.searchParams.set('limit', String(Math.max(10, Math.min(maxItems * 3, 60))));
+  url.searchParams.set('lang', 'en');
+  url.searchParams.set('apiKey', key);
+
+  try {
+    const res = await fetchWithTimeout(url.toString(), {}, GEOAPIFY_TIMEOUT_MS);
+    if (!res.ok) {
+      console.warn('[travel-apis] Geoapify places search failed', {
+        searchedFrom: geo.displayName,
+        status: res.status,
+      });
+      return [];
+    }
+    const data = await res.json();
+    const features = (Array.isArray(data?.features) ? data.features : []) as GeoapifyFeature[];
+    return features
+      .map((feature): PlaceOffer | null => {
+        const props = feature.properties ?? {};
+        const coord = geoapifyFeatureCoord(feature);
+        const name = asString(props.name) || asString(props.address_line1);
+        if (!coord || !name) return null;
+        const categories = Array.isArray(props.categories) ? props.categories : [];
+        const category = categories.some((item) => typeof item === 'string' && item.startsWith('catering.'))
+          ? 'restaurant'
+          : 'place';
+        const address = asString(props.formatted) ||
+          [asString(props.address_line1), asString(props.address_line2)].filter(Boolean).join(', ') ||
+          null;
+        const distanceKm = Math.round(haversineKm(geo.lat, geo.lon, coord.lat, coord.lon) * 10) / 10;
+        return {
+          id: `geoapify/${asString(props.place_id) || `${coord.lat.toFixed(6)},${coord.lon.toFixed(6)}`}`,
+          name,
+          category,
+          address,
+          latitude: coord.lat,
+          longitude: coord.lon,
+          cuisine: asString(props.cuisine) || null,
+          website: asString(props.website) || null,
+          phone: asString(props.contact_phone) || asString(props.phone) || null,
+          source: 'geoapify',
+          raw: {
+            source: 'geoapify',
+            provider: 'Geoapify Places',
+            categories,
+            distanceKm,
+            rawPlace: props,
+          },
+        };
+      })
+      .filter((place): place is PlaceOffer => Boolean(place))
+      .sort((a, b) => placeQualityScore(b, geo) - placeQualityScore(a, geo))
+      .slice(0, maxItems);
+  } catch (error) {
+    console.warn('[travel-apis] Geoapify places search threw', {
+      searchedFrom: geo.displayName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
+async function searchPlacesOsm(geo: GeoResult, maxItems: number): Promise<PlaceOffer[]> {
+  for (const radiusMeters of PLACE_SEARCH_RADII_METERS) {
+    const elements = await overpassQuery(placeOverpassQuery(geo, radiusMeters));
+    const places = elements
+      .map((el): PlaceOffer | null => {
+        const tags = el.tags ?? {};
+        const coord = elementCoord(el);
+        const name = osmPlaceName(tags);
+        const category = placeCategoryFromOsm(tags);
+        if (!coord || !name || !category || !isValidLatLon(coord.lat, coord.lon)) return null;
+        const distanceKm = Math.round(haversineKm(geo.lat, geo.lon, coord.lat, coord.lon) * 10) / 10;
+        return {
+          id: `osm/${el.type}/${el.id}`,
+          name,
+          category,
+          address: osmPlaceAddress(tags),
+          latitude: coord.lat,
+          longitude: coord.lon,
+          cuisine: tags.cuisine ?? null,
+          website: tags.website ?? tags['contact:website'] ?? null,
+          phone: tags.phone ?? tags['contact:phone'] ?? null,
+          source: 'osm',
+          raw: {
+            source: 'osm',
+            provider: 'OpenStreetMap Overpass',
+            amenity: tags.amenity ?? null,
+            tourism: tags.tourism ?? null,
+            historic: tags.historic ?? null,
+            leisure: tags.leisure ?? null,
+            distanceKm,
+            coord,
+            osm: { type: el.type, id: el.id, tags },
+          },
+        };
+      })
+      .filter((place): place is PlaceOffer => Boolean(place))
+      .sort((a, b) => placeQualityScore(b, geo) - placeQualityScore(a, geo));
+
+    console.debug('[travel-apis] OSM places response', {
+      searchedFrom: geo.displayName,
+      radiusMeters,
+      elementCount: elements.length,
+      placeCount: places.length,
+      sampleNames: places.slice(0, 5).map((place) => place.name),
+    });
+    if (places.length >= Math.min(6, maxItems) || radiusMeters === PLACE_SEARCH_RADII_METERS[PLACE_SEARCH_RADII_METERS.length - 1]) {
+      return places.slice(0, maxItems);
+    }
+  }
+  return [];
+}
+
+function placeFallbackQueries(): Array<{ query: string; category: 'restaurant' | 'place' }> {
+  return [
+    { query: 'restaurant', category: 'restaurant' },
+    { query: 'cafe', category: 'restaurant' },
+    { query: 'attraction', category: 'place' },
+    { query: 'museum', category: 'place' },
+  ];
+}
+
+async function searchPlacesNominatimFallback(
+  geo: GeoResult,
+  maxItems: number,
+): Promise<PlaceOffer[]> {
+  const offers: PlaceOffer[] = [];
+  const seen = new Set<string>();
+  for (const { query, category } of placeFallbackQueries()) {
+    const url = new URL(`${NOMINATIM}/search`);
+    url.searchParams.set('q', query);
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', '10');
+    url.searchParams.set('addressdetails', '1');
+    url.searchParams.set('extratags', '1');
+    url.searchParams.set('viewbox', boundedViewbox(geo, 40));
+    url.searchParams.set('bounded', '1');
+    const res = await fetchWithTimeout(
+      url.toString(),
+      { headers: NOMINATIM_HEADERS },
+      NOMINATIM_TIMEOUT_MS,
+    );
+    if (!res.ok) continue;
+    const hits = (await res.json()) as NominatimHit[];
+    for (const [index, hit] of hits.entries()) {
+      const lat = Number(hit.lat);
+      const lon = Number(hit.lon);
+      if (!isValidLatLon(lat, lon)) continue;
+      const tags = hit.extratags ?? {};
+      const name = tags.name?.trim() || tags.brand?.trim() || hit.display_name.split(',')[0]?.trim();
+      if (!name) continue;
+      const key = `${name.toLowerCase()}|${lat.toFixed(5)},${lon.toFixed(5)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      offers.push({
+        id: `nominatim-place/${lat.toFixed(6)},${lon.toFixed(6)}/${index}`,
+        name,
+        category,
+        address: hit.display_name,
+        latitude: lat,
+        longitude: lon,
+        cuisine: tags.cuisine ?? null,
+        website: tags.website ?? tags['contact:website'] ?? null,
+        phone: tags.phone ?? tags['contact:phone'] ?? null,
+        source: 'nominatim-osm',
+        raw: {
+          source: 'nominatim-osm',
+          provider: 'Nominatim / OpenStreetMap',
+          fallbackQuery: query,
+          distanceKm: Math.round(haversineKm(geo.lat, geo.lon, lat, lon) * 10) / 10,
+          coord: { lat, lon },
+          osm: { tags },
+        },
+      });
+      if (offers.length >= maxItems) return offers;
+    }
+  }
+  return offers;
+}
+
+function dedupePlaces(places: PlaceOffer[], geo: GeoResult, maxItems: number): PlaceOffer[] {
+  const seen = new Set<string>();
+  return places
+    .filter((place) => {
+      const key = `${place.name.toLowerCase()}|${place.latitude.toFixed(4)},${place.longitude.toFixed(4)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => placeQualityScore(b, geo) - placeQualityScore(a, geo))
+    .slice(0, maxItems);
+}
+
+export async function searchPlaces(
+  geo: GeoResult,
+  options: { maxItems?: number } = {},
+): Promise<{ places: PlaceOffer[]; error?: string }> {
+  const maxItems = Math.max(1, Math.min(options.maxItems ?? 12, 20));
+  const errors: string[] = [];
+  const geoapify = await searchPlacesGeoapify(geo, maxItems);
+  let osm: PlaceOffer[] = [];
+  if (geoapify.length < maxItems) {
+    try {
+      osm = await searchPlacesOsm(geo, maxItems);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'OpenStreetMap place search failed.');
+    }
+  }
+
+  const combined = dedupePlaces([...geoapify, ...osm], geo, maxItems);
+  if (combined.length >= Math.min(6, maxItems)) return { places: combined };
+
+  let nominatim: PlaceOffer[] = [];
+  try {
+    nominatim = await searchPlacesNominatimFallback(geo, maxItems);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : 'Nominatim place fallback failed.');
+  }
+  const withFallback = dedupePlaces([...combined, ...nominatim], geo, maxItems);
+  return withFallback.length
+    ? { places: withFallback }
+    : {
+      places: [],
+      error: errors[0] ?? 'No real restaurants or places found from Geoapify, OpenStreetMap, or Nominatim for this area.',
+    };
+}
+
+export function buildPlacesContext(places: PlaceOffer[]): string {
+  if (!places.length) return '';
+  const restaurants = places.filter((place) => place.category === 'restaurant').slice(0, 6);
+  const attractions = places.filter((place) => place.category === 'place').slice(0, 6);
+  const lines = ['[REAL RESTAURANT/PLACE DATA]'];
+  if (restaurants.length) {
+    lines.push(
+      'Restaurants from real place APIs: ' +
+        restaurants
+          .map((place) =>
+            `${place.name}${place.cuisine ? ` (${place.cuisine})` : ''} @ ${place.latitude.toFixed(5)},${place.longitude.toFixed(5)} [${place.source}]`
+          )
+          .join('; '),
+    );
+  }
+  if (attractions.length) {
+    lines.push(
+      'Places/attractions from real place APIs: ' +
+        attractions
+          .map((place) => `${place.name} @ ${place.latitude.toFixed(5)},${place.longitude.toFixed(5)} [${place.source}]`)
+          .join('; '),
+    );
+  }
+  lines.push('Use these named restaurants/places when relevant. Do not replace them with invented restaurant names.');
+  return lines.join('\n');
+}
+
+export type AirportPoint = {
   name: string;
   iata: string | null;
   lat: number;
@@ -1211,7 +2029,7 @@ type AirportPoint = {
   distanceKm: number;
 };
 
-async function findAirportsNear(geo: GeoResult): Promise<AirportPoint[]> {
+export async function findAirportsNear(geo: GeoResult): Promise<AirportPoint[]> {
   const query = `
 [out:json][timeout:8];
 (
@@ -1483,13 +2301,26 @@ export async function buildTravelContext(input: {
   budgetInr?: number;
   travelers?: number;
   includeHotels?: boolean;
+  includePlaces?: boolean;
   includeFlightOffers?: boolean;
+  includeTrainOffers?: boolean;
+  includeBusOffers?: boolean;
+  maxPlaces?: number;
+  maxHotels?: number;
+  weatherDays?: number;
 }): Promise<string> {
+  const cacheKey = travelContextCacheKey(input);
+  const cached = getCachedTravelContext(cacheKey);
+  if (cached !== undefined) return cached;
+
   const parts: string[] = [];
   const dest = input.destination?.trim();
   if (!dest) return '';
   const includeHotels = input.includeHotels ?? true;
+  const includePlaces = input.includePlaces ?? true;
   const includeFlightOffers = input.includeFlightOffers ?? true;
+  const includeTrainOffers = input.includeTrainOffers ?? true;
+  const includeBusOffers = input.includeBusOffers ?? true;
 
   const geo = await geocodeDestination(dest);
   if (geo) {
@@ -1499,7 +2330,8 @@ export async function buildTravelContext(input: {
     const weather = await fetchWeather(geo.lat, geo.lon);
     if (weather) {
       parts.push(`Weather (Open-Meteo): ${weather.summary}`);
-      const sample = weather.daily.slice(0, 3).map(
+      const weatherSampleDays = Math.min(input.weatherDays ?? 3, weather.daily.length);
+      const sample = weather.daily.slice(0, weatherSampleDays).map(
         (d) =>
           `${d.date}: ${Math.round(d.tempMinC)}–${Math.round(d.tempMaxC)}°C, rain ${d.precipitationMm}mm`,
       );
@@ -1507,14 +2339,19 @@ export async function buildTravelContext(input: {
     }
 
     if (includeHotels) {
-      const hotels = await searchHotelsOsm(geo, input.budgetInr);
-      if (hotels.offers.length) {
+      const hotels = await searchHotelsOsm(geo, {
+        budgetInr: input.budgetInr,
+        tripDays: tripDaysFromDates(input.startDate, input.endDate),
+        travelers: input.travelers,
+      });
+      const hotelSlice = hotels.offers.slice(0, input.maxHotels ?? 5);
+      if (hotelSlice.length) {
         parts.push(
-          'Hotels (OpenStreetMap — real names/addresses; nightly INR estimated): ' +
-            hotels.offers
+          'Hotels (estimate INR/night): ' +
+            hotelSlice
               .map(
                 (h) =>
-                  `${h.name}${h.rating ? ` ★${h.rating}` : ''} ~${h.pricePerNightUsd != null ? formatInr(h.pricePerNightUsd) : '?'}/night (estimate)`,
+                  `${h.name}${h.rating ? ` ★${h.rating}` : ''} ~${h.pricePerNightUsd != null ? formatInr(h.pricePerNightUsd) : '?'}`,
               )
               .join('; '),
         );
@@ -1523,7 +2360,16 @@ export async function buildTravelContext(input: {
       }
     }
 
-    if (input.origin && input.startDate) {
+    if (includePlaces) {
+      const places = await searchPlaces(geo, { maxItems: input.maxPlaces ?? 8 });
+      if (places.places.length) {
+        parts.push(buildPlacesContext(places.places));
+      } else if (places.error) {
+        parts.push(`[REAL RESTAURANT/PLACE DATA]\nNo real restaurant/place data available: ${places.error}`);
+      }
+    }
+
+    if (input.origin) {
       const originGeo = await geocodeDestination(input.origin);
       if (originGeo) {
         const days = tripDaysFromDates(input.startDate, input.endDate);
@@ -1539,10 +2385,44 @@ export async function buildTravelContext(input: {
           groundTransportEstimates(route.distanceKm, input.travelers ?? 1),
         );
 
+        if (includeTrainOffers && route.sameCountry) {
+          const trains = await searchIndianTrains({
+            originName: input.origin,
+            destinationName: dest,
+            originGeo,
+            destGeo: geo,
+            maxItems: 6,
+          });
+          parts.push(
+            buildIndianRailContext(
+              trains,
+              estimateTrainPriceInr(route.distanceKm, input.travelers ?? 1),
+            ),
+          );
+        }
+
+        if (includeBusOffers && route.recommendedModes.includes('bus')) {
+          const buses = await searchBusOptions({
+            originName: input.origin,
+            destinationName: dest,
+            originGeo,
+            destGeo: geo,
+            departDate: input.startDate,
+            travelers: input.travelers,
+            maxItems: 5,
+          });
+          parts.push(
+            buildBusContext(
+              buses,
+              estimateBusPriceInr(route.distanceKm, input.travelers ?? 1),
+            ),
+          );
+        }
+
         const includeFlights = shouldIncludeFlights(route);
 
         if (includeFlights) {
-          if (includeFlightOffers) {
+          if (includeFlightOffers && input.startDate) {
             const flights = await searchFlightsEstimate({
               originGeo,
               destGeo: geo,
@@ -1564,7 +2444,7 @@ export async function buildTravelContext(input: {
             }
           } else {
             parts.push(
-              'Flights: Route analysis says flights may be appropriate; use realistic INR estimates and keep details concise.',
+              'Flights: Route analysis says flights may be appropriate; use realistic INR estimates and keep details concise. Exact options require a start date.',
             );
           }
         } else {
@@ -1581,5 +2461,7 @@ export async function buildTravelContext(input: {
   }
   if (input.travelers) parts.push(`Travelers: ${input.travelers}.`);
 
-  return parts.join('\n');
+  const result = parts.join('\n');
+  if (result) setCachedTravelContext(cacheKey, result);
+  return result;
 }

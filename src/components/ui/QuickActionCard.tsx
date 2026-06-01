@@ -7,7 +7,8 @@ import {
   type LucideIcon,
 } from 'lucide-react-native'
 
-import { brand } from '@/constants/design'
+import { brand, spacing } from '@/constants/design'
+import { typography } from '@/constants/typography'
 import { useResponsive } from '@/hooks/use-responsive'
 import { cardShadow, radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
@@ -25,6 +26,8 @@ interface Props {
   icon: keyof typeof iconMap
   featured?: boolean
   onPress?: () => void
+  /** Fill available row width (use inside flex rows on Android). */
+  flex?: number
   style?: StyleProp<ViewStyle>
 }
 
@@ -34,63 +37,73 @@ export function QuickActionCard({
   icon,
   featured = false,
   onPress,
+  flex,
   style,
 }: Props) {
   const theme = useThemedStyles()
-  const { scaleFont, isSmallPhone } = useResponsive()
+  const { scaleFont } = useResponsive()
   const Icon = iconMap[icon] ?? MessageSquare
 
   return (
     <Pressable
       onPress={onPress}
-      style={[
+      style={({ pressed }) => [
         {
-          borderRadius: radii.lg,
-          padding: featured ? 20 : 16,
-          backgroundColor: featured ? brand.primaryDark : theme.colors.card,
+          alignSelf: 'stretch',
+          borderRadius: radii.xl,
+          padding: featured ? spacing.lg : spacing.md,
+          backgroundColor: featured ? brand.primary : theme.colors.card,
           borderWidth: featured ? 0 : 1,
           borderColor: theme.colors.border,
-          minHeight: featured ? 108 : 96,
+          minHeight: featured ? 88 : 80,
+          opacity: pressed ? 0.94 : 1,
+          transform: [{ scale: pressed ? 0.98 : 1 }],
+          ...(flex != null ? { flex, minWidth: 0 } : undefined),
         },
         cardShadow(theme.isDark, featured),
         style,
       ]}
     >
-      <View
-        style={{
-          width: 44,
-          height: 44,
-          borderRadius: radii.md,
-          backgroundColor: featured ? 'rgba(255,255,255,0.2)' : brand.primaryLight,
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: 12,
-        }}
-      >
-        <Icon size={22} color={featured ? brand.onPrimary : brand.primaryDark} />
-      </View>
-      <Text
-        style={{
-          color: featured ? brand.onPrimary : theme.colors.text,
-          fontWeight: '700',
-          fontSize: scaleFont(15),
-        }}
-      >
-        {label}
-      </Text>
-      {description ? (
-        <Text
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+        <View
           style={{
-            color: featured ? 'rgba(255,255,255,0.85)' : theme.colors.textMuted,
-            fontSize: scaleFont(13),
-            marginTop: 4,
-            lineHeight: 18,
+            width: 40,
+            height: 40,
+            borderRadius: radii.md,
+            backgroundColor: featured ? 'rgba(255,255,255,0.16)' : theme.colors.primaryLight,
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
           }}
-          numberOfLines={2}
         >
-          {description}
-        </Text>
-      ) : null}
+          <Icon size={20} color={featured ? brand.onPrimary : brand.primaryDark} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0, flexShrink: 1 }}>
+          <Text
+            style={{
+              ...typography.h3,
+              color: featured ? brand.onPrimary : theme.colors.text,
+              fontSize: scaleFont(15),
+            }}
+            numberOfLines={1}
+          >
+            {label}
+          </Text>
+          {description ? (
+            <Text
+              style={{
+                color: featured ? 'rgba(255,255,255,0.82)' : theme.colors.textMuted,
+                fontSize: scaleFont(12),
+                marginTop: 2,
+                lineHeight: 16,
+              }}
+              numberOfLines={2}
+            >
+              {description}
+            </Text>
+          ) : null}
+        </View>
+      </View>
     </Pressable>
   )
 }

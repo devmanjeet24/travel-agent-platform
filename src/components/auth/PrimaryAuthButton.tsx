@@ -1,7 +1,8 @@
 import { ActivityIndicator, Pressable, Text, type PressableProps } from 'react-native'
 
 import { brand } from '@/constants/design'
-import { radii } from '@/lib/ui-styles'
+import { typography } from '@/constants/typography'
+import { buttonShadow, radii } from '@/lib/ui-styles'
 
 interface Props extends Omit<PressableProps, 'style'> {
   title: string
@@ -24,7 +25,7 @@ export function PrimaryAuthButton({ title, loading, disabled, onPress, ...props 
       style={{
         width: '100%',
         minHeight: 56,
-        borderRadius: radii.pill,
+        borderRadius: radii.md,
         backgroundColor: brand.primaryDark,
         alignItems: 'center',
         justifyContent: 'center',
@@ -33,19 +34,14 @@ export function PrimaryAuthButton({ title, loading, disabled, onPress, ...props 
         opacity: isDisabled ? 0.6 : 1,
         marginTop: 4,
         marginBottom: 4,
+        ...buttonShadow(false),
       }}
       {...props}
     >
       {loading ? (
         <ActivityIndicator color={brand.onPrimary} />
       ) : (
-        <Text
-          style={{
-            color: brand.onPrimary,
-            fontSize: 17,
-            fontWeight: '700',
-          }}
-        >
+        <Text style={{ ...typography.button, color: brand.onPrimary }}>
           {title}
         </Text>
       )}

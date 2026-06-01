@@ -16,10 +16,15 @@ import {
   geocodeDestination,
   geocodeNearDestination,
   isPlaceholderTripImageUrl,
+  searchPlaces,
+  type PlaceOffer,
 } from '../_shared/travel-apis.ts';
+import { logGroqUsage } from '../_shared/groq-usage.ts';
+import { createServiceSupabase, sendExpoPushToUser } from '../_shared/expo-push.ts';
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL = 'llama-3.3-70b-versatile';
+const MODEL_70B = 'llama-3.3-70b-versatile';
+const MODEL_8B = 'llama-3.1-8b-instant';
 const GROQ_TIMEOUT_MS = 45_000;
 const BASE_ACTIVITY_GEOCODE_LIMIT = 8;
 const LONG_TRIP_ACTIVITY_GEOCODE_LIMIT = 3;
@@ -72,6 +77,43 @@ function maxActivityDistanceKm(placeType?: string): number {
 
 function activityGeocodeLimit(tripDays: number): number {
   return tripDays > 10 ? LONG_TRIP_ACTIVITY_GEOCODE_LIMIT : BASE_ACTIVITY_GEOCODE_LIMIT;
+}
+
+function isDiningActivity(name: string, notes?: string): boolean {
+  return /\b(breakfast|brunch|lunch|dinner|meal|restaurant|cafe|coffee|food|dining)\b/i.test(
+    `${name} ${notes ?? ''}`,
+  );
+}
+
+function isGenericPlaceActivity(name: string, notes?: string): boolean {
+  return /\b(local attraction|nearby attraction|sightseeing|explore|visit|museum|market|park)\b/i.test(
+    `${name} ${notes ?? ''}`,
+  );
+}
+
+function placeNote(place: PlaceOffer): string {
+  const details = [
+    place.address,
+    place.cuisine ? `Cuisine: ${place.cuisine}` : null,
+    `Source: ${place.source}`,
+  ].filter(Boolean);
+  return details.join(' · ');
+}
+
+function realDiningActivityName(originalName: string, placeName: string): string {
+  const prefix = originalName.replace(/\bat\s+.+$/i, '').trim();
+  return `${prefix || 'Meal'} at ${placeName}`;
+}
+
+function consumeRealPlace(
+  places: PlaceOffer[],
+  usedPlaceIds: Set<string>,
+  category: PlaceOffer['category'],
+): PlaceOffer | null {
+  const match = places.find((place) => place.category === category && !usedPlaceIds.has(place.id));
+  if (!match) return null;
+  usedPlaceIds.add(match.id);
+  return match;
 }
 
 function assertNoDbError(
@@ -162,6 +204,7 @@ Rules:
 - Use INR costs from [LIVE TRAVEL DATA] when present; otherwise realistic India-first estimates within budget.
 - India pricing guide: Train ₹500–₹2500; Bus ₹300–₹1500; Food ₹200–₹800/meal; Budget hotel ₹1000–₹4000/night; Activities ₹200–₹2000.
 - Include lat/lon for major activities when you know approximate coordinates.
+- For restaurants, cafes, and named attractions, prefer entries from [REAL RESTAURANT/PLACE DATA] and copy their lat/lon exactly.
 - Packing list should reflect weather in live data.
 - Create exactly ${tripDays} itinerary day${tripDays === 1 ? '' : 's'} when dates are provided.
 - Keep JSON compact: ${tripDays > 10 ? 'for this longer trip use 1–2 concise activities per day.' : 'use 2–3 concise activities per day.'}
@@ -175,6 +218,12 @@ Dates: ${trip.start_date ?? 'flexible'} to ${trip.end_date ?? 'flexible'}
 [LIVE TRAVEL DATA]
 ${travelContext}`;
 
+    const plannerModel = tripDays > 10 ? MODEL_70B : MODEL_8B;
+    const plannerMaxTokens = Math.min(
+      tripDays > 10 ? 6144 : 4096,
+      1_200 + tripDays * 200,
+    );
+
     const groqRes = await fetchWithTimeout(GROQ_URL, {
       method: 'POST',
       headers: {
@@ -182,18 +231,21 @@ ${travelContext}`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: MODEL,
+        model: plannerModel,
         messages: [
           { role: 'system', content: PLAN_SYSTEM_PROMPT },
           { role: 'user', content: prompt },
         ],
         temperature: 0.4,
-        max_tokens: tripDays > 10 ? 8192 : 4096,
+        max_tokens: plannerMaxTokens,
         response_format: { type: 'json_object' },
       }),
     }, GROQ_TIMEOUT_MS);
 
     const groqData = await groqRes.json().catch(() => null);
+    logGroqUsage('plan_trip', (groqData ?? {}) as Record<string, unknown>, plannerModel, {
+      user_id: user.id,
+    });
     if (!groqRes.ok) {
       return jsonResponse(
         { error: groqData?.error?.message ?? 'Groq request failed' },
@@ -255,6 +307,8 @@ ${travelContext}`;
         });
       }
     }
+    const realPlaces = geo ? (await searchPlaces(geo, { maxItems: 14 })).places : [];
+    const usedPlaceIds = new Set<string>();
 
     assertNoDbError(
       await supabase.from('itinerary_days').delete().eq('trip_id', trip.id),
@@ -287,9 +341,24 @@ ${travelContext}`;
         const activities: ActivityInsert[] = [];
         for (let i = 0; i < (day.activities ?? []).length; i++) {
           const a = day.activities[i];
+          const realPlace = isDiningActivity(a.name, a.notes)
+            ? consumeRealPlace(realPlaces, usedPlaceIds, 'restaurant')
+            : isGenericPlaceActivity(a.name, a.notes)
+              ? consumeRealPlace(realPlaces, usedPlaceIds, 'place')
+              : null;
+          const activityName = realPlace
+            ? isDiningActivity(a.name, a.notes)
+              ? realDiningActivityName(a.name, realPlace.name)
+              : realPlace.name
+            : a.name;
           let lat = typeof a.lat === 'number' ? a.lat : null;
           let lon = typeof a.lon === 'number' ? a.lon : null;
           let coordinateSource = lat != null && lon != null ? 'ai' : 'missing';
+          if (realPlace) {
+            lat = realPlace.latitude;
+            lon = realPlace.longitude;
+            coordinateSource = realPlace.source;
+          }
           if (lat != null && lon != null && !isValidLatLon(lat, lon)) {
             coordinateSource = 'ai-invalid';
             lat = null;
@@ -299,7 +368,7 @@ ${travelContext}`;
             const distanceKm = haversineKm(geo.lat, geo.lon, lat, lon);
             if (distanceKm > maxActivityDistanceKm(geo.placeType)) {
               console.warn('[plan-trip] rejected distant activity coordinates', {
-                activity: a.name,
+                activity: activityName,
                 lat,
                 lon,
                 destination: geo.displayName,
@@ -313,22 +382,22 @@ ${travelContext}`;
           if (
             (lat == null || lon == null) &&
             geo &&
-            a.name &&
+            activityName &&
             activityGeocodeAttempts < maxActivityGeocodes
           ) {
             activityGeocodeAttempts += 1;
-            const coords = await geocodeNearDestination(a.name, geo);
+            const coords = await geocodeNearDestination(activityName, geo);
             if (coords) {
               lat = coords.lat;
               lon = coords.lon;
               coordinateSource = 'nominatim';
             }
             await new Promise((r) => setTimeout(r, 250));
-          } else if ((lat == null || lon == null) && geo && a.name) {
+          } else if ((lat == null || lon == null) && geo && activityName) {
             coordinateSource = 'skipped-limit';
           }
           console.debug('[plan-trip] activity coordinates', {
-            activity: a.name,
+            activity: activityName,
             coordinateSource,
             lat,
             lon,
@@ -336,16 +405,16 @@ ${travelContext}`;
           activities.push({
             day_id: dayRow.id,
             activity_time: a.time,
-            name: a.name,
+            name: activityName,
             cost_usd: resolveActivityCostInr({
               cost: a.cost_usd,
-              name: a.name,
+              name: activityName,
               transport: a.transport,
               distanceKm: routeAnalysis?.distanceKm,
               travelers: trip.travelers,
             }),
             transport: normalizeActivityTransport(a.transport, routeAnalysis),
-            notes: a.notes,
+            notes: realPlace ? placeNote(realPlace) || a.notes : a.notes,
             latitude: lat,
             longitude: lon,
             sort_order: i,
@@ -450,6 +519,17 @@ ${travelContext}`;
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id);
+
+    const pushAdmin = createServiceSupabase();
+    if (pushAdmin) {
+      void sendExpoPushToUser(pushAdmin, user.id, {
+        title: 'Itinerary ready',
+        body: `Your ${trip.destination} plan is ready to view.`,
+        data: { tripId: trip.id, type: 'trip_update' },
+      }).catch((e) => {
+        console.warn('[plan-trip] push failed:', e);
+      });
+    }
 
     return jsonResponse({ success: true, plan, weather: weatherSummary });
   } catch (e) {

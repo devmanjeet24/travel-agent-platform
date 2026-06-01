@@ -9,13 +9,18 @@ const PLACEHOLDER_IMAGE_HOSTS = [
   'via.placeholder.com',
   'source.unsplash.com',
 ]
-const PLACEHOLDER_UNSPLASH_PHOTO_IDS = ['photo-1488646953014-85cb44e25828']
+const PLACEHOLDER_UNSPLASH_PHOTO_IDS = [
+  'photo-1488646953014-85cb44e25828',
+  'photo-1476514525535-07fb3b4ae5f1',
+  'photo-1507525428034-b723cf961d3e',
+]
 
 const destinationImageOverrides: Record<string, string> = {
   bali: featuredDestinations.find((d) => d.id === 'bali')?.image ?? defaultTripImage,
   indonesia: featuredDestinations.find((d) => d.id === 'bali')?.image ?? defaultTripImage,
   paris: featuredDestinations.find((d) => d.id === 'paris')?.image ?? defaultTripImage,
   france: featuredDestinations.find((d) => d.id === 'paris')?.image ?? defaultTripImage,
+  'paris france': featuredDestinations.find((d) => d.id === 'paris')?.image ?? defaultTripImage,
   tokyo: featuredDestinations.find((d) => d.id === 'tokyo')?.image ?? defaultTripImage,
   japan: featuredDestinations.find((d) => d.id === 'tokyo')?.image ?? defaultTripImage,
   santorini: featuredDestinations.find((d) => d.id === 'santorini')?.image ?? defaultTripImage,
@@ -30,10 +35,14 @@ const destinationImageOverrides: Record<string, string> = {
   australia: 'https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=1200&q=80',
   sydney: 'https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=1200&q=80',
   melbourne: 'https://images.unsplash.com/photo-1545044846-351ba102b6d5?w=1200&q=80',
+  'melbourne australia': 'https://images.unsplash.com/photo-1545044846-351ba102b6d5?w=1200&q=80',
   'new zealand': 'https://images.unsplash.com/photo-1469521669194-babb45599def?w=1200&q=80',
   auckland: 'https://images.unsplash.com/photo-1507699622108-4be3abd695ad?w=1200&q=80',
   queenstown: 'https://images.unsplash.com/photo-1589871973318-9ca1258faa5d?w=1200&q=80',
   dubai: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
+  uae: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
+  'united arab emirates': 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
+  'dubai uae': 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&q=80',
   london: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&q=80',
   'new york': 'https://images.unsplash.com/photo-1485871981521-5b1fd3805eee?w=1200&q=80',
   usa: 'https://images.unsplash.com/photo-1485871981521-5b1fd3805eee?w=1200&q=80',
@@ -47,21 +56,42 @@ const destinationImageOverrides: Record<string, string> = {
 }
 
 function normalizeDestinationKey(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
+  const lower = value.trim().toLowerCase()
+  if (!lower) return ''
+  const normalize = (lower as string).normalize
+  if (typeof normalize !== 'function') return lower
+
+  let normalized = lower
+  try {
+    normalized = normalize.call(lower, 'NFKD')
+  } catch {
+    normalized = lower
+  }
+
+  return normalized.replace(/[\u0300-\u036f]/g, '')
+}
+
+function safeText(value: string | null | undefined) {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 function destinationCandidates(trip: Pick<TripRow, 'destination' | 'country'>) {
-  const destination = trip.destination.trim()
+  const destination = safeText(trip.destination)
   const destinationParts = destination
     .split(',')
     .map((part) => part.trim())
     .filter(Boolean)
-  return [destinationParts[0], ...destinationParts.slice(1), destination, trip.country?.trim()]
+  return [destinationParts[0], ...destinationParts.slice(1), destination, safeText(trip.country)]
     .filter((value): value is string => Boolean(value))
+}
+
+function destinationImageOverride(trip: Pick<TripRow, 'destination' | 'country'>) {
+  const candidates = destinationCandidates(trip)
+  for (const candidate of candidates) {
+    const override = destinationImageOverrides[normalizeDestinationKey(candidate)]
+    if (override) return override
+  }
+  return null
 }
 
 function safeParseUrl(value: string) {
@@ -103,8 +133,9 @@ export function needsTripDestinationSync(
     'image_url' | 'destination' | 'destination_lat' | 'destination_lon' | 'country'
   >,
 ) {
+  const destination = safeText(trip.destination)
   return (
-    Boolean(trip.destination.trim()) &&
+    Boolean(destination) &&
     (isPlaceholderTripImageUrl(trip.image_url) ||
       trip.destination_lat == null ||
       trip.destination_lon == null ||
@@ -113,16 +144,22 @@ export function needsTripDestinationSync(
 }
 
 export function tripImageUri(trip: Pick<TripRow, 'image_url' | 'destination' | 'country'>) {
+  const override = destinationImageOverride(trip)
+  if (override) return override
+
   const stored = trip.image_url?.trim()
   if (stored && !isPlaceholderTripImageUrl(stored)) return stored
 
-  const candidates = destinationCandidates(trip)
-  for (const candidate of candidates) {
-    const override = destinationImageOverrides[normalizeDestinationKey(candidate)]
-    if (override) return override
-  }
-
   return defaultTripImage
+}
+
+export function replacementTripImageUri(
+  trip: Pick<TripRow, 'image_url' | 'destination' | 'country'>,
+) {
+  const override = destinationImageOverride(trip)
+  if (!override) return null
+  const stored = trip.image_url?.trim()
+  return stored === override ? null : override
 }
 
 export function isGeneratedTripTitle(title: string, destination: string) {
@@ -138,8 +175,8 @@ export function isGeneratedTripTitle(title: string, destination: string) {
 }
 
 export function tripCardLabels(trip: TripRow) {
-  const title = trip.title.trim()
-  const destination = trip.destination.trim()
+  const title = safeText(trip.title)
+  const destination = safeText(trip.destination)
   const displayTitle =
     destination && isGeneratedTripTitle(title, destination)
       ? destination

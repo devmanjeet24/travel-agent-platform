@@ -1,20 +1,59 @@
-import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+
+import {
+  clearAllScheduledNotificationIds,
+  getAllScheduledNotificationIds,
+} from '@/lib/scheduled-notifications-storage';
 
 const TRIP_REMINDER_CHANNEL_ID = 'trip-reminders';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+type NotificationsModule = typeof import('expo-notifications');
+
+let notificationsModulePromise: Promise<NotificationsModule | null> | null = null;
+let notificationHandlerConfigured = false;
+
+function isExpoGoRuntime() {
+  return (
+    Platform.OS === 'android' &&
+    (Constants as { appOwnership?: string }).appOwnership === 'expo'
+  );
+}
+
+async function getNotificationsModule(): Promise<NotificationsModule | null> {
+  if (Platform.OS === 'web' || isExpoGoRuntime()) return null;
+  if (!notificationsModulePromise) {
+    notificationsModulePromise = import('expo-notifications')
+      .then((mod) => mod)
+      .catch((error) => {
+        console.warn('[notifications]', error instanceof Error ? error.message : error);
+        return null;
+      });
+  }
+  return notificationsModulePromise;
+}
+
+async function ensureNotificationHandler() {
+  if (notificationHandlerConfigured) return;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return;
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+  notificationHandlerConfigured = true;
+}
 
 async function ensureNotificationPermissions(): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return false;
+
+  await ensureNotificationHandler();
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync(TRIP_REMINDER_CHANNEL_ID, {
@@ -38,13 +77,24 @@ async function ensureNotificationPermissions(): Promise<boolean> {
   return granted;
 }
 
-export async function registerForPushNotifications(): Promise<string | null> {
-  if (Platform.OS === 'web') return null;
+function resolveExpoProjectId(): string | undefined {
+  const extra = Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined;
+  return extra?.eas?.projectId;
+}
 
+export async function registerForPushNotifications(): Promise<string | null> {
   const granted = await ensureNotificationPermissions();
   if (!granted) return null;
 
-  return (await Notifications.getExpoPushTokenAsync()).data;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return null;
+
+  const projectId = resolveExpoProjectId();
+  const tokenResult = projectId
+    ? await Notifications.getExpoPushTokenAsync({ projectId })
+    : await Notifications.getExpoPushTokenAsync();
+
+  return tokenResult.data;
 }
 
 export async function scheduleTripReminder(params: {
@@ -53,6 +103,10 @@ export async function scheduleTripReminder(params: {
   triggerDate: Date;
 }): Promise<string | null> {
   if (params.triggerDate.getTime() <= Date.now()) return null;
+
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return null;
+
   const granted = await ensureNotificationPermissions();
   if (!granted) return null;
 
@@ -60,6 +114,7 @@ export async function scheduleTripReminder(params: {
     content: {
       title: params.title,
       body: params.body,
+      data: { type: 'trip_reminder' },
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
@@ -68,4 +123,19 @@ export async function scheduleTripReminder(params: {
     },
   });
   return id;
+}
+
+/** Cancel locally scheduled trip reminders and clear stored IDs. */
+export async function cancelAllTripPushNotifications(): Promise<void> {
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return;
+
+  const storedIds = await getAllScheduledNotificationIds();
+  await Promise.all(
+    storedIds.map((id) =>
+      Notifications.cancelScheduledNotificationAsync(id).catch(() => undefined),
+    ),
+  );
+  await Notifications.cancelAllScheduledNotificationsAsync();
+  await clearAllScheduledNotificationIds();
 }

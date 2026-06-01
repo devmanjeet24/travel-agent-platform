@@ -1,17 +1,21 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Text, View } from 'react-native'
 import { Link, useRouter } from 'expo-router'
 
 import { SocialAuthButtons } from '@/components/auth/SocialAuthButtons'
 import { AuthShell } from '@/components/ui/AuthShell'
 import { PrimaryAuthButton } from '@/components/auth/PrimaryAuthButton'
-import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { brand } from '@/constants/design'
-import { isWeb, radii } from '@/lib/ui-styles'
+import { AUTH_FOOTER_MARGIN_TOP } from '@/lib/layout-parity'
+import { radii } from '@/lib/ui-styles'
 import { useSignUpMutation } from '@/hooks/auth/use-sign-up-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
+import {
+  type AuthFieldErrors,
+  validateSignUpFields,
+} from '@/utils/auth-validation'
 
 export default function SignupScreen() {
   const router = useRouter()
@@ -20,29 +24,49 @@ export default function SignupScreen() {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({})
+  const [formError, setFormError] = useState<string | null>(null)
   const [confirmationSent, setConfirmationSent] = useState(false)
 
   const signUpMutation = useSignUpMutation()
-  const loading = signUpMutation.isPending
+  const isBusy = signUpMutation.isPending
+
+  const clearFieldError = useCallback((field: keyof AuthFieldErrors) => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }, [])
 
   const handleSignUp = () => {
-    setError(null)
-    setConfirmationSent(false)
-    if (!email.trim() || password.length < 8) {
-      setError('Use a valid email and password (min. 8 characters).')
+    if (isBusy) return
+    setFormError(null)
+
+    if (!isConfigured) {
+      setFormError('Supabase is not configured. Add your keys in .env first.')
       return
     }
+
+    const result = validateSignUpFields(email, password, confirmPassword, fullName)
+    if (!result.ok) {
+      setFieldErrors(result.errors)
+      return
+    }
+    setFieldErrors({})
+
     signUpMutation.mutate(
       {
-        email: email.trim(),
+        email: result.email,
         password,
-        fullName: fullName.trim() || undefined,
+        fullName: result.fullName,
       },
       {
         onSuccess: ({ error: authError, needsEmailConfirmation }) => {
           if (authError) {
-            setError(authError)
+            setFormError(authError)
             return
           }
           if (needsEmailConfirmation) {
@@ -54,6 +78,8 @@ export default function SignupScreen() {
       },
     )
   }
+
+  const showForm = !confirmationSent
 
   return (
     <AuthShell
@@ -84,48 +110,116 @@ export default function SignupScreen() {
         </View>
       ) : null}
 
-      <Input
-        label="Full name"
-        placeholder="Alex Rivera"
-        value={fullName}
-        onChangeText={setFullName}
-      />
-      <Input
-        label="Email"
-        placeholder="you@example.com"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <Input
-        label="Password"
-        placeholder="Min. 8 characters"
-        showPasswordToggle
-        value={password}
-        onChangeText={setPassword}
-        error={error ?? undefined}
-      />
+      {showForm ? (
+        <>
+          <Input
+            label="Full name"
+            placeholder="Alex Rivera"
+            autoCapitalize="words"
+            autoComplete="name"
+            textContentType="name"
+            value={fullName}
+            onChangeText={(text) => {
+              setFullName(text)
+              clearFieldError('fullName')
+              setFormError(null)
+            }}
+            error={fieldErrors.fullName}
+            editable={!isBusy}
+            returnKeyType="next"
+          />
+          <Input
+            label="Email"
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="email"
+            textContentType="emailAddress"
+            value={email}
+            onChangeText={(text) => {
+              setEmail(text)
+              clearFieldError('email')
+              setFormError(null)
+            }}
+            error={fieldErrors.email}
+            editable={!isBusy}
+            returnKeyType="next"
+          />
+          <Input
+            label="Password"
+            placeholder="Min. 8 characters"
+            showPasswordToggle
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="new-password"
+            textContentType="newPassword"
+            value={password}
+            onChangeText={(text) => {
+              setPassword(text)
+              clearFieldError('password')
+              setFormError(null)
+            }}
+            error={fieldErrors.password}
+            editable={!isBusy}
+            returnKeyType="next"
+          />
+          <Input
+            label="Confirm password"
+            placeholder="Re-enter your password"
+            showPasswordToggle
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="new-password"
+            textContentType="newPassword"
+            value={confirmPassword}
+            onChangeText={(text) => {
+              setConfirmPassword(text)
+              clearFieldError('confirmPassword')
+              setFormError(null)
+            }}
+            error={fieldErrors.confirmPassword}
+            editable={!isBusy}
+            returnKeyType="go"
+            onSubmitEditing={handleSignUp}
+          />
+        </>
+      ) : null}
+
+      {formError ? (
+        <Text
+          accessibilityRole="alert"
+          style={{
+            color: brand.danger,
+            fontSize: 14,
+            marginBottom: 12,
+            lineHeight: 20,
+          }}
+        >
+          {formError}
+        </Text>
+      ) : null}
 
       <PrimaryAuthButton
         title={
-          loading
+          signUpMutation.isPending
             ? 'Creating account…'
             : confirmationSent
               ? 'Resend confirmation'
               : 'Create account'
         }
-        loading={loading}
+        loading={signUpMutation.isPending}
+        disabled={isBusy && !signUpMutation.isPending}
         onPress={handleSignUp}
       />
 
-      <SocialAuthButtons onError={setError} />
+      <SocialAuthButtons onError={setFormError} disabled={isBusy} />
 
       <Text
         style={{
           color: colors.textMuted,
           textAlign: 'center',
-          marginTop: isWeb ? 24 : 20,
+          marginTop: AUTH_FOOTER_MARGIN_TOP,
           fontSize: 15,
         }}
       >

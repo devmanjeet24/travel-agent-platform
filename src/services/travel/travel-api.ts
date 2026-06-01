@@ -128,12 +128,20 @@ export type SearchHotelsResult = {
   geocodedAs?: string;
 };
 
+export type SearchPlacesResult = {
+  places?: unknown[];
+  context?: string;
+  error?: string | null;
+  geocodedAs?: string;
+};
+
 export async function searchAndCacheHotels(params: {
   tripId: string;
   destination: string;
   startDate?: string;
   endDate?: string;
   budgetInr?: number;
+  travelers?: number;
   destinationLat?: number | null;
   destinationLon?: number | null;
 }): Promise<SearchHotelsResult> {
@@ -156,10 +164,29 @@ export async function searchAndCacheHotels(params: {
     ...(params.startDate ? { startDate: params.startDate } : {}),
     ...(params.endDate ? { endDate: params.endDate } : {}),
     budgetInr: params.budgetInr,
+    travelers: params.travelers,
     ...(hasValidDestinationCoordinate
       ? { lat: params.destinationLat, lon: params.destinationLon }
       : {}),
   }) as Promise<SearchHotelsResult>;
+}
+
+export async function searchPlacesForDestination(params: {
+  destination: string;
+  destinationLat?: number | null;
+  destinationLon?: number | null;
+}): Promise<SearchPlacesResult> {
+  const hasValidDestinationCoordinate =
+    params.destinationLat != null &&
+    params.destinationLon != null &&
+    isValidCoordinate(params.destinationLat, params.destinationLon);
+  return invokeTravelSearch({
+    action: 'places',
+    destination: params.destination,
+    ...(hasValidDestinationCoordinate
+      ? { lat: params.destinationLat, lon: params.destinationLon }
+      : {}),
+  }) as Promise<SearchPlacesResult>;
 }
 
 export type RoutePolicy = {
@@ -197,6 +224,9 @@ export async function searchAndCacheFlights(params: {
   origin: string;
   destination: string;
   departDate: string;
+  startDate?: string;
+  endDate?: string;
+  travelers?: number;
   /** Budget in INR (API field budgetUsd accepted for compatibility). */
   budgetInr?: number;
   budgetUsd?: number;
@@ -207,8 +237,31 @@ export async function searchAndCacheFlights(params: {
     origin: params.origin,
     destination: params.destination,
     departDate: params.departDate,
+    ...(params.startDate ? { startDate: params.startDate } : {}),
+    ...(params.endDate ? { endDate: params.endDate } : {}),
     budgetInr: params.budgetInr ?? params.budgetUsd,
+    travelers: params.travelers,
   });
+}
+
+export type IndianTrainSearchResult = {
+  trains?: unknown[];
+  stations?: unknown;
+  error?: string | null;
+  note?: string | null;
+  source?: 'apify' | 'fallback' | string;
+  live?: boolean;
+};
+
+export async function searchIndianTrains(params: {
+  origin: string;
+  destination: string;
+}): Promise<IndianTrainSearchResult> {
+  return invokeTravelSearch({
+    action: 'trains',
+    origin: params.origin,
+    destination: params.destination,
+  }) as Promise<IndianTrainSearchResult>;
 }
 
 export async function geocodeTripItinerary(tripId: string): Promise<{

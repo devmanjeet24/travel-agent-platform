@@ -29,9 +29,10 @@ Cross-platform travel planning app (Expo + React Native + TypeScript + Supabase 
 - **Supabase** — auth, trips, chat history, notifications, itinerary/budget/packing
 - **Groq** — streaming AI chat, trip planner, voice transcription (Edge Functions)
 - **Open-Meteo + Nominatim + Overpass** — weather, geocoding, OSM hotels (no API key)
-- **OpenStreetMap + OSRM** — maps, markers, and driving routes
+- **OpenStreetMap + OSRM** — maps, markers, route geometry, and driving routes
 - **Estimated fares** — flight/hotel prices when live booking APIs are unavailable
-- **expo-print / expo-notifications** — PDF export and local trip reminders
+- **expo-print / expo-notifications** — PDF export, Expo push tokens, local trip reminders
+- **Offline sync** — persisted trips/chat cache + auto-refetch when back online ([docs](./docs/push-and-offline-sync.md))
 
 ## Environment variables (client)
 

@@ -1,7 +1,8 @@
 import { Text, View } from 'react-native'
 import Markdown from 'react-native-markdown-display'
 
-import { brand } from '@/constants/design'
+import { brand, spacing } from '@/constants/design'
+import { typography } from '@/constants/typography'
 import { radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { TypingIndicator } from '@/components/chat/TypingIndicator'
@@ -24,21 +25,36 @@ export function ChatBubble({ message, role, timestamp, streaming }: Props) {
       fontSize: 16,
       lineHeight: 24,
     },
-    heading1: { fontSize: 20, fontWeight: '700' as const, marginBottom: 8 },
-    heading2: { fontSize: 18, fontWeight: '700' as const, marginBottom: 6 },
-    strong: { fontWeight: '700' as const },
+    heading1: { fontSize: 20, fontWeight: '700' as const, marginBottom: 8, color: theme.colors.text },
+    heading2: { fontSize: 18, fontWeight: '700' as const, marginBottom: 6, color: theme.colors.text },
+    strong: { fontWeight: '700' as const, color: theme.colors.text },
     bullet_list: { marginVertical: 4 },
     ordered_list: { marginVertical: 4 },
     list_item: { marginVertical: 2 },
     paragraph: { marginTop: 0, marginBottom: 6 },
     link: { color: brand.primaryDark },
+    code_inline: {
+      backgroundColor: theme.colors.muted,
+      color: theme.colors.text,
+      borderRadius: 4,
+      paddingHorizontal: 4,
+    },
+    fence: {
+      backgroundColor: theme.colors.muted,
+      color: theme.colors.text,
+      borderColor: theme.colors.border,
+      borderWidth: 1,
+      borderRadius: radii.sm,
+      padding: spacing.sm,
+      marginVertical: spacing.sm,
+    },
   }
 
   return (
     <View
       style={{
-        marginBottom: 14,
-        maxWidth: isUser ? '84%' : '92%',
+        marginBottom: spacing.md,
+        maxWidth: isUser ? '86%' : '94%',
         alignSelf: isUser ? 'flex-end' : 'flex-start',
         alignItems: isUser ? 'flex-end' : 'flex-start',
       }}
@@ -48,21 +64,20 @@ export function ChatBubble({ message, role, timestamp, streaming }: Props) {
       ) : (
         <View
           style={{
-            borderRadius: radii.xl,
-            paddingHorizontal: 16,
-            paddingVertical: 12,
+            borderRadius: radii.lg,
+            paddingHorizontal: spacing.lg,
+            paddingVertical: spacing.md,
             backgroundColor: isUser ? brand.primaryDark : theme.colors.card,
             borderWidth: isUser ? 0 : 1,
             borderColor: theme.colors.border,
-            borderBottomRightRadius: isUser ? radii.sm : radii.xl,
-            borderBottomLeftRadius: isUser ? radii.xl : radii.sm,
+            borderBottomRightRadius: isUser ? radii.xs : radii.lg,
+            borderBottomLeftRadius: isUser ? radii.lg : radii.xs,
           }}
         >
           {isUser ? (
             <Text
               style={{
-                fontSize: 16,
-                lineHeight: 24,
+                ...typography.body,
                 color: brand.onPrimary,
               }}
             >
@@ -74,12 +89,12 @@ export function ChatBubble({ message, role, timestamp, streaming }: Props) {
           {streaming && message ? (
             <View
               style={{
-                width: 8,
-                height: 8,
+                width: 7,
+                height: 7,
                 borderRadius: 4,
-                backgroundColor: brand.primaryDark,
-                marginTop: 8,
-                opacity: 0.6,
+                backgroundColor: brand.ai,
+                marginTop: spacing.sm,
+                opacity: 0.7,
               }}
             />
           ) : null}
@@ -88,10 +103,10 @@ export function ChatBubble({ message, role, timestamp, streaming }: Props) {
       {timestamp && !showTyping ? (
         <Text
           style={{
+            ...typography.caption,
             color: theme.colors.textMuted,
-            fontSize: 11,
-            marginTop: 6,
-            paddingHorizontal: 4,
+            marginTop: spacing.xs,
+            paddingHorizontal: spacing.xs,
           }}
         >
           {timestamp}

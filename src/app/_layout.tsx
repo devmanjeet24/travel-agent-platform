@@ -1,3 +1,5 @@
+import 'react-native-reanimated'
+
 import '@/lib/native-splash'
 
 import {
@@ -8,9 +10,9 @@ import {
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { useMemo, type ReactNode } from 'react'
-import { useColorScheme } from 'react-native'
 
 import '@/global.css'
+import { useColorScheme } from '@/hooks/use-color-scheme'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { AppProviders } from '@/providers/app-providers'
 

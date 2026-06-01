@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { Text, View } from 'react-native'
 import { Image } from 'expo-image'
 
 import { brand } from '@/constants/design'
+import { textWithWeight } from '@/constants/inter-typography'
+import { typography } from '@/constants/typography'
 
 interface Props {
   uri?: string
@@ -13,6 +16,7 @@ const sizes = { sm: 40, md: 64, lg: 112 }
 const textSizes = { sm: 14, md: 20, lg: 36 }
 
 export function Avatar({ uri, name = '?', size = 'md' }: Props) {
+  const [failedUri, setFailedUri] = useState<string | null>(null)
   const dim = sizes[size]
   const initials = name
     .split(' ')
@@ -31,7 +35,7 @@ export function Avatar({ uri, name = '?', size = 'md' }: Props) {
     justifyContent: 'center' as const,
   }
 
-  if (uri) {
+  if (uri && failedUri !== uri) {
     return (
       <View style={ringStyle}>
         <Image
@@ -40,6 +44,7 @@ export function Avatar({ uri, name = '?', size = 'md' }: Props) {
           style={{ width: dim, height: dim, borderRadius: dim / 2 }}
           cachePolicy="none"
           recyclingKey={uri}
+          onError={() => setFailedUri(uri)}
         />
       </View>
     )
@@ -57,7 +62,12 @@ export function Avatar({ uri, name = '?', size = 'md' }: Props) {
           justifyContent: 'center',
         }}
       >
-        <Text style={{ color: brand.onPrimary, fontWeight: '800', fontSize: textSizes[size] }}>
+        <Text
+          style={textWithWeight(typography.h2, '800', {
+            color: brand.onPrimary,
+            fontSize: textSizes[size],
+          })}
+        >
           {initials}
         </Text>
       </View>

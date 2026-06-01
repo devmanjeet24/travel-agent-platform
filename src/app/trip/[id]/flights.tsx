@@ -18,8 +18,12 @@ import { tripKeys } from '@/services/trips/trip-keys'
 import { searchAndCacheFlights } from '@/services/travel/travel-api'
 import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
-import { formatInr } from '@/utils/currency'
-import { flightDurationLabel, flightNote, parseFlightRaw } from '@/utils/flight-display'
+import {
+  flightDurationLabel,
+  flightNote,
+  flightPriceLabel,
+  parseFlightRaw,
+} from '@/utils/flight-display'
 import {
   collectItineraryTransportOptions,
   isLowTripBudget,
@@ -78,7 +82,10 @@ export default function FlightsScreen() {
         origin: trip.origin_city,
         destination: trip.destination,
         departDate: trip.start_date,
+        startDate: trip.start_date,
+        endDate: trip.end_date ?? undefined,
         budgetInr: trip.budget_usd ? Number(trip.budget_usd) : undefined,
+        travelers: trip.travelers,
       })
       void queryClient.invalidateQueries({ queryKey: tripKeys.flights(trip.id) })
     } catch (e) {
@@ -136,7 +143,7 @@ export default function FlightsScreen() {
             <>
               {showGroundSection ? (
                 <Text className={`${theme.text} font-bold text-base mt-4 mb-2`}>
-                  Flight estimates
+                  Flight options
                 </Text>
               ) : null}
               {flights!.map((f) => {
@@ -160,10 +167,10 @@ export default function FlightsScreen() {
                       {duration ? ` · ${duration}` : ''} · {f.stops}
                     </Text>
                     <Text className={`${theme.textMuted} text-xs mt-1`}>
-                      {note ?? 'Estimated fare — not a live booking price'}
+                      {note ?? 'Flight availability and prices can change before booking.'}
                     </Text>
                     <Text className="text-yellow-600 font-bold text-xl mt-1">
-                      {f.price_usd != null ? formatInr(f.price_usd) : '—'}
+                      {flightPriceLabel(f.raw, f.price_usd)}
                     </Text>
                   </Card>
                 )

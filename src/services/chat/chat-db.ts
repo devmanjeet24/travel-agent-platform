@@ -1,20 +1,25 @@
 import { getSupabaseOrNull } from '@/lib/supabase';
 import type { ChatConversationRow, ChatMessageRow } from '@/types/database';
 
-export async function fetchLatestConversation(): Promise<ChatConversationRow | null> {
-  const rows = await fetchConversations();
+export async function fetchLatestConversation(
+  tripId?: string,
+): Promise<ChatConversationRow | null> {
+  const rows = await fetchConversations(tripId);
   return rows[0] ?? null;
 }
 
-export async function fetchConversations(): Promise<ChatConversationRow[]> {
+export async function fetchConversations(tripId?: string): Promise<ChatConversationRow[]> {
   const supabase = getSupabaseOrNull();
   if (!supabase) return [];
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('chat_conversations')
     .select('*')
     .order('updated_at', { ascending: false })
     .limit(20);
+  if (tripId) query = query.eq('trip_id', tripId);
+
+  const { data, error } = await query;
 
   if (error) {
     if (error.message.includes('does not exist')) {

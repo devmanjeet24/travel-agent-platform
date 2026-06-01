@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { Pressable, Text, type PressableProps, type ViewStyle } from 'react-native'
 
 import { brand } from '@/constants/design'
+import { typography } from '@/constants/typography'
 import { buttonShadow, radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
-type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger'
+type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'ai'
 
 interface Props extends PressableProps {
   title: string
@@ -19,9 +20,11 @@ function variantStyle(
 ): ViewStyle {
   switch (variant) {
     case 'primary':
-      return { backgroundColor: brand.primaryDark }
+      return { backgroundColor: brand.primary }
     case 'secondary':
       return { backgroundColor: brand.accent }
+    case 'ai':
+      return { backgroundColor: brand.ai }
     case 'outline':
       return {
         backgroundColor: colors.card,
@@ -36,16 +39,16 @@ function variantStyle(
 }
 
 function variantTextColor(variant: Variant, colors: ReturnType<typeof useThemedStyles>['colors']) {
-  if (variant === 'primary' || variant === 'secondary' || variant === 'danger') {
+  if (variant === 'primary' || variant === 'secondary' || variant === 'danger' || variant === 'ai') {
     return brand.onPrimary
   }
   return colors.text
 }
 
 const sizeStyles = {
-  sm: { paddingVertical: 10, paddingHorizontal: 18, minHeight: 44, fontSize: 14 },
-  md: { paddingVertical: 14, paddingHorizontal: 22, minHeight: 52, fontSize: 16 },
-  lg: { paddingVertical: 16, paddingHorizontal: 24, minHeight: 56, fontSize: 17 },
+  sm: { paddingVertical: 11, paddingHorizontal: 18, minHeight: 44, typo: typography.buttonSm },
+  md: { paddingVertical: 14, paddingHorizontal: 22, minHeight: 52, typo: typography.button },
+  lg: { paddingVertical: 16, paddingHorizontal: 26, minHeight: 56, typo: typography.button },
 }
 
 export function Button({
@@ -60,8 +63,7 @@ export function Button({
   const sizing = sizeStyles[size]
   const [pressed, setPressed] = useState(false)
 
-  const flatExtra =
-    typeof styleProp === 'function' ? undefined : styleProp
+  const flatExtra = typeof styleProp === 'function' ? undefined : styleProp
 
   return (
     <Pressable
@@ -79,23 +81,16 @@ export function Button({
           minHeight: sizing.minHeight,
           paddingVertical: sizing.paddingVertical,
           paddingHorizontal: sizing.paddingHorizontal,
-          opacity: disabled ? 0.55 : pressed ? 0.88 : 1,
+          opacity: disabled ? 0.5 : pressed ? 0.9 : 1,
+          transform: [{ scale: pressed && !disabled ? 0.98 : 1 }],
         },
         variantStyle(variant, colors),
-        variant === 'primary' ? buttonShadow(isDark) : undefined,
+        variant === 'primary' || variant === 'ai' ? buttonShadow(isDark) : undefined,
         flatExtra,
       ]}
       {...props}
     >
-      <Text
-        style={{
-          color: variantTextColor(variant, colors),
-          fontSize: sizing.fontSize,
-          fontWeight: '700',
-        }}
-      >
-        {title}
-      </Text>
+      <Text style={{ ...sizing.typo, color: variantTextColor(variant, colors) }}>{title}</Text>
     </Pressable>
   )
 }

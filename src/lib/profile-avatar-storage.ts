@@ -6,7 +6,7 @@ const BUCKET = 'profile-avatars';
 
 export function profileAvatarStoragePath(userId: string, fileName: string): string {
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-  return `${userId}/${safeName}`;
+  return `${userId}/${Date.now()}-${safeName}`;
 }
 
 /** Extract object path from a Supabase public avatar URL, if it belongs to our bucket. */
@@ -14,7 +14,7 @@ export function parseProfileAvatarStoragePath(publicUrl: string): string | null 
   const marker = `/storage/v1/object/public/${BUCKET}/`;
   const idx = publicUrl.indexOf(marker);
   if (idx === -1) return null;
-  return decodeURIComponent(publicUrl.slice(idx + marker.length));
+  return decodeURIComponent(publicUrl.slice(idx + marker.length).split(/[?#]/)[0] ?? '');
 }
 
 export async function uploadProfileAvatarFile(params: {

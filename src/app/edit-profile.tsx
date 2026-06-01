@@ -6,9 +6,11 @@ import { RequireSession } from '@/components/auth/require-session'
 import { ProfileAvatarEditor } from '@/components/profile/ProfileAvatarEditor'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { ScreenHeader } from '@/components/ui/ScreenHeader'
+import { PageHeader } from '@/components/ui/PageHeader'
 import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { Card } from '@/components/ui/Card'
+import { spacing } from '@/constants/design'
+import { typography } from '@/constants/typography'
 import { useProfileQuery } from '@/hooks/profile/use-profile-query'
 import { useUpdateProfileMutation } from '@/hooks/profile/use-update-profile-mutation'
 import { useAuth } from '@/providers/auth-provider'
@@ -28,6 +30,10 @@ export default function EditProfileScreen() {
   const { user, displayName } = useAuth()
   const { data: profile, isLoading } = useProfileQuery()
   const updateMutation = useUpdateProfileMutation()
+  const handleBackPress = () => {
+    if (router.canGoBack()) router.back()
+    else router.replace('/(tabs)/profile')
+  }
 
   const initialDisplayName =
     profile?.display_name ?? (!isLoading ? (displayName === 'Traveler' ? '' : displayName) : '')
@@ -51,7 +57,7 @@ export default function EditProfileScreen() {
       {
         onSuccess: () => {
           showMessage('Profile', 'Your changes were saved.')
-          router.back()
+          handleBackPress()
         },
         onError: (err) => {
           const message = err instanceof Error ? err.message : 'Could not save profile'
@@ -64,21 +70,22 @@ export default function EditProfileScreen() {
 
   return (
     <RequireSession>
-      <ScreenWrapper scroll keyboardAvoiding>
-        <ScreenHeader
-          eyebrow="Account"
-          title="Edit profile"
-          subtitle="Name and photo"
-          showBack
-        />
+      <ScreenWrapper scroll keyboardAvoiding subtleBackground>
+        <PageHeader showBack title="Edit profile" subtitle="Update your name and photo" />
 
-        <View style={{ alignItems: 'center', marginBottom: 24 }}>
+        <View
+          style={{
+            alignItems: 'center',
+            marginBottom: spacing['2xl'],
+            paddingVertical: spacing.xl,
+          }}
+        >
           <ProfileAvatarEditor
             uri={profile?.avatar_url ?? undefined}
             name={avatarName}
             size="lg"
           />
-          <Text style={{ color: theme.colors.textMuted, fontSize: 13, marginTop: 12 }}>
+          <Text style={{ ...typography.caption, color: theme.colors.textMuted, marginTop: spacing.md }}>
             Tap photo to change
           </Text>
         </View>
@@ -97,12 +104,10 @@ export default function EditProfileScreen() {
           error={fieldError}
         />
 
-        <Card style={{ marginBottom: 24 }}>
-          <Text style={{ color: theme.colors.textMuted, fontSize: 13, fontWeight: '600', letterSpacing: 0.3, textTransform: 'uppercase' }}>
-            Email
-          </Text>
-          <Text style={{ color: theme.colors.text, fontSize: 16, marginTop: 8 }}>{email}</Text>
-          <Text style={{ color: theme.colors.textMuted, fontSize: 13, marginTop: 6 }}>
+        <Card style={{ marginBottom: spacing.xl }}>
+          <Text style={{ ...typography.eyebrow, color: theme.colors.textMuted }}>Email</Text>
+          <Text style={{ ...typography.body, color: theme.colors.text, marginTop: spacing.sm }}>{email}</Text>
+          <Text style={{ ...typography.caption, color: theme.colors.textMuted, marginTop: spacing.sm, lineHeight: 18 }}>
             Email is managed by your sign-in provider and cannot be changed here.
           </Text>
         </Card>
@@ -116,7 +121,7 @@ export default function EditProfileScreen() {
         <Button
           title="Cancel"
           variant="ghost"
-          onPress={() => router.back()}
+          onPress={handleBackPress}
           disabled={updateMutation.isPending}
           style={{ marginTop: 10 }}
         />
