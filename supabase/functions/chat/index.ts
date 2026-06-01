@@ -32,6 +32,7 @@ Rules:
 - Continue from [CHAT MEMORY] and recent messages; ask one short follow-up when details are missing.
 - DB changes only via tools; never claim a mutation unless a tool succeeded.
 - New full trips need destination, origin, dates/duration, travelers, INR budget (draft OK if requested).
+- On create_trip, generatePlan defaults to true — always build itinerary, budget, and packing unless the user explicitly wants a draft-only trip.
 - If [CLIENT TRIP CONTEXT] includes origin, use it and do not ask for origin city unless the user wants to change it.
 - [LIVE TRAVEL DATA]: weather, named hotels/places, real trains only when present; mark estimates as approximate; no invented train numbers if [AI TRAIN FALLBACK].
 ${CHAT_TRANSPORT_HINT_SHORT}

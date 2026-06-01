@@ -143,7 +143,7 @@ export const CHAT_AGENT_TOOLS = [
           generatePlan: {
             type: 'boolean',
             description:
-              'Generate itinerary, budget, packing, weather, and destination metadata after creating the trip.',
+              'Generate itinerary, budget, packing, weather, and destination metadata after creating the trip. Defaults to true; set false only when the user explicitly wants a draft trip without a plan.',
           },
           refreshTravelOptions: {
             type: 'boolean',
@@ -885,7 +885,8 @@ export async function executeChatTool(input: {
     await updateProfileTripStats(supabase, userId);
 
     const tripId = (trip as { id: string }).id;
-    const generation = args.generatePlan
+    const shouldGeneratePlan = args.generatePlan !== false;
+    const generation = shouldGeneratePlan
       ? await invokeInternalEdge(authHeader, 'plan-trip', { tripId })
       : null;
 

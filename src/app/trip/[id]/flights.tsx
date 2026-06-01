@@ -6,8 +6,10 @@ import { Plane } from 'lucide-react-native'
 import { TransportBadge } from '@/components/trip/TransportBadge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { TripPlanPending } from '@/components/trip/TripPlanPending'
 import TripScreenWrapper from '@/components/trip/TripScreenWrapper'
 import { useRoutePolicy } from '@/hooks/trips/use-route-policy'
+import { useTripPlan } from '@/providers/trip-plan-provider'
 import { useSyncTripTravel } from '@/hooks/trips/use-sync-trip-travel'
 import {
   useTripFlightsQuery,
@@ -50,6 +52,7 @@ export default function FlightsScreen() {
   const { data: itinerary } = useTripItineraryQuery(id)
   const { data: flights, isLoading, isFetching, isError } = useTripFlightsQuery(id)
   const { data: routePolicy } = useRoutePolicy(trip)
+  const { needsPlan, isPlanning, queriesLoading, planError, retryPlan } = useTripPlan()
   useSyncTripTravel(trip)
 
   const groundOptions = collectItineraryTransportOptions(itinerary)
@@ -94,10 +97,26 @@ export default function FlightsScreen() {
   }
 
   const loading =
-    isLoading || (isFetching && !flights?.length && !groundOptions.length)
+    isLoading ||
+    queriesLoading ||
+    (isFetching && !flights?.length && !groundOptions.length) ||
+    (needsPlan && isPlanning)
   const showGroundSection = groundOptions.length > 0
   const showFlightsSection = Boolean(flights?.length)
   const hasTransportContent = showGroundSection || showFlightsSection
+
+  if (needsPlan && isPlanning && !hasTransportContent) {
+    return (
+      <TripPlanPending
+        title="Building transport options…"
+        subtitle="Generating your itinerary first, then loading trains, buses, and flights where available."
+      />
+    )
+  }
+
+  if (needsPlan && planError && !hasTransportContent) {
+    return <TripPlanPending error={planError} onRetry={retryPlan} />
+  }
 
   return (
     <TripScreenWrapper className={theme.bg}>

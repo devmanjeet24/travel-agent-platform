@@ -185,11 +185,13 @@ export async function fetchItinerary(tripId: string): Promise<
   if (!days?.length) return [];
 
   const dayIds = days.map((d) => d.id);
-  const { data: activities } = await supabase
+  const { data: activities, error: activitiesError } = await supabase
     .from('itinerary_activities')
     .select('*')
     .in('day_id', dayIds)
     .order('sort_order');
+
+  if (activitiesError) throw new Error(activitiesError.message);
 
   return (days as ItineraryDayRow[]).map((day) => ({
     ...day,

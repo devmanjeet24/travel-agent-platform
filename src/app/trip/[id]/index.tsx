@@ -26,9 +26,16 @@ import {
   useTripFlightsQuery,
   useTripHotelsQuery,
   useTripItineraryQuery,
+  useTripPackingQuery,
   useTripQuery,
 } from '@/hooks/trips/use-trip-query'
+import { formatInr } from '@/utils/currency'
+import {
+  budgetRowsToChartCategories,
+  deriveBudgetCategoriesFromTripData,
+} from '@/utils/derive-trip-budget'
 import { usePlanTripMutation } from '@/hooks/trips/use-plan-trip-mutation'
+import { useTripPlan } from '@/providers/trip-plan-provider'
 import { useConfirmDeleteTrip } from '@/hooks/trips/use-confirm-delete-trip'
 import { tripKeys } from '@/services/trips/trip-keys'
 import { formatTripDates } from '@/services/trips/trip-api'
@@ -61,8 +68,10 @@ export default function TripOverviewScreen() {
   const { data: budget } = useTripBudgetQuery(id)
   const { data: hotels, isLoading: hotelsLoading } = useTripHotelsQuery(id)
   const { data: flights } = useTripFlightsQuery(id)
+  const { data: packing } = useTripPackingQuery(id)
   const { data: routePolicy } = useRoutePolicy(trip)
   const planTrip = usePlanTripMutation()
+  const { needsPlan, isPlanning, planError, retryPlan } = useTripPlan()
   const { confirmDelete, isDeleting } = useConfirmDeleteTrip()
   const [refreshing, setRefreshing] = useState(false)
 
@@ -171,6 +180,34 @@ export default function TripOverviewScreen() {
       ? 'Loading hotels…'
       : 'Tap refresh for OpenStreetMap hotels'
 
+  const itineraryHint = itinerary?.length
+    ? `${itinerary.length} day${itinerary.length === 1 ? '' : 's'} · ${itinerary.reduce((n, d) => n + d.activities.length, 0)} activities`
+    : needsPlan
+      ? isPlanning
+        ? 'Generating itinerary…'
+        : 'Itinerary pending'
+      : null
+
+  const budgetChart =
+    budget?.length && trip
+      ? budgetRowsToChartCategories(budget)
+      : trip
+        ? deriveBudgetCategoriesFromTripData({ trip, itinerary, hotels, flights })
+        : []
+  const budgetTotal = budgetChart.reduce((s, c) => s + c.amount, 0)
+  const budgetHint =
+    budgetTotal > 0
+      ? `Est. ${formatInr(budgetTotal)} total`
+      : needsPlan && isPlanning
+        ? 'Calculating budget…'
+        : null
+
+  const packingHint = packing?.length
+    ? `${packing.filter((i) => i.packed).length}/${packing.length} packed`
+    : needsPlan && isPlanning
+      ? 'Building packing list…'
+      : null
+
   return (
     <TripScreenWrapper>
       <Card className="mt-2">
@@ -181,12 +218,30 @@ export default function TripOverviewScreen() {
         <Text className="text-yellow-600 font-medium mt-3 capitalize">{trip.status}</Text>
       </Card>
 
+      {needsPlan && (isPlanning || planError) ? (
+        <Card className="mt-4">
+          <Text className={`${theme.text} font-semibold`}>
+            {planError ? 'Could not build trip plan' : 'Building your trip plan…'}
+          </Text>
+          <Text className={`${theme.textMuted} text-sm mt-2 leading-5`}>
+            {planError
+              ? planError.message
+              : 'Generating itinerary, budget, packing list, and destination details.'}
+          </Text>
+          {planError ? (
+            <Button title="Try again" className="mt-4" onPress={retryPlan} />
+          ) : (
+            <ActivityIndicator className="mt-4" color={brand.primaryDark} />
+          )}
+        </Card>
+      ) : null}
+
       <Button
-        title={planTrip.isPending ? 'Planning…' : 'Regenerate AI plan'}
+        title={planTrip.isPending || isPlanning ? 'Planning…' : 'Regenerate AI plan'}
         variant="secondary"
         className="mt-4"
         onPress={() => planTrip.mutate(trip.id)}
-        disabled={planTrip.isPending}
+        disabled={planTrip.isPending || isPlanning}
       />
 
       <Button
@@ -270,7 +325,13 @@ export default function TripOverviewScreen() {
             ? transportHint
             : s.route === 'hotels'
               ? hotelsHint
-              : null
+              : s.route === 'itinerary'
+                ? itineraryHint
+                : s.route === 'budget'
+                  ? budgetHint
+                  : s.route === 'packing'
+                    ? packingHint
+                    : null
         return (
           <Card
             key={s.route}
