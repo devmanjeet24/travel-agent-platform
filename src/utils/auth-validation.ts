@@ -23,9 +23,17 @@ export function isBlankAfterTrim(value: string): boolean {
   return trimAuthField(value).length === 0
 }
 
+/** True when the user typed something but it is only whitespace. */
+export function isWhitespaceOnly(value: string): boolean {
+  return value.length > 0 && /^\s+$/.test(value)
+}
+
 export function validateEmail(email: string): string | null {
   const trimmed = trimAuthField(email)
-  if (!trimmed) return 'Email is required.'
+  if (!trimmed) {
+    if (isWhitespaceOnly(email)) return 'Email cannot be only spaces.'
+    return 'Email is required.'
+  }
   if (trimmed.length > 254) return 'Email is too long.'
   if (!EMAIL_REGEX.test(trimmed)) return 'Enter a valid email address.'
   return null
@@ -34,7 +42,7 @@ export function validateEmail(email: string): string | null {
 /** Sign-in: require a non-empty password (do not trim — spaces may be intentional). */
 export function validateSignInPassword(password: string): string | null {
   if (!password) return 'Password is required.'
-  if (/^\s+$/.test(password)) return 'Password cannot be only spaces.'
+  if (isWhitespaceOnly(password)) return 'Password cannot be only spaces.'
   return null
 }
 
@@ -45,7 +53,7 @@ export function validatePassword(
 ): string | null {
   const minLength = options?.minLength ?? AUTH_PASSWORD_MIN_LENGTH
   if (!password) return 'Password is required.'
-  if (/^\s+$/.test(password)) return 'Password cannot be only spaces.'
+  if (isWhitespaceOnly(password)) return 'Password cannot be only spaces.'
   if (password.length < minLength) {
     return `Password must be at least ${minLength} characters.`
   }
@@ -60,15 +68,15 @@ export function validatePasswordConfirmation(
   confirmPassword: string,
 ): string | null {
   if (!confirmPassword) return 'Please confirm your password.'
-  if (/^\s+$/.test(confirmPassword)) return 'Password cannot be only spaces.'
+  if (isWhitespaceOnly(confirmPassword)) return 'Password cannot be only spaces.'
   if (password !== confirmPassword) return 'Passwords do not match.'
   return null
 }
 
-/** Optional on signup; validated only when the user entered something. */
 export function validateFullName(name: string, required = false): string | null {
   const trimmed = trimAuthField(name)
   if (!trimmed) {
+    if (isWhitespaceOnly(name)) return 'Full name cannot be only spaces.'
     return required ? 'Full name is required.' : null
   }
   if (trimmed.length < AUTH_NAME_MIN_LENGTH) {
@@ -102,12 +110,12 @@ export function validateSignUpFields(
   password: string,
   confirmPassword: string,
   fullName: string,
-): { ok: true; email: string; fullName?: string } | { ok: false; errors: AuthFieldErrors } {
+): { ok: true; email: string; fullName: string } | { ok: false; errors: AuthFieldErrors } {
   const errors: AuthFieldErrors = {}
   const emailError = validateEmail(email)
   const passwordError = validatePassword(password)
   const confirmError = validatePasswordConfirmation(password, confirmPassword)
-  const nameError = validateFullName(fullName, false)
+  const nameError = validateFullName(fullName, true)
 
   if (emailError) errors.email = emailError
   if (passwordError) errors.password = passwordError
@@ -116,11 +124,10 @@ export function validateSignUpFields(
 
   if (Object.keys(errors).length > 0) return { ok: false, errors }
 
-  const trimmedName = trimAuthField(fullName)
   return {
     ok: true,
     email: trimAuthField(email),
-    ...(trimmedName ? { fullName: trimmedName } : {}),
+    fullName: trimAuthField(fullName),
   }
 }
 
