@@ -15,6 +15,7 @@ import { usePlanTripMutation } from '@/hooks/trips/use-plan-trip-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
 import { setupTripPushAndNotifications } from '@/services/push/trip-push-service'
+import { useDeviceOriginCity } from '@/hooks/use-device-origin-city'
 
 export default function TripWizardScreen() {
   const router = useRouter()
@@ -29,7 +30,7 @@ export default function TripWizardScreen() {
   const [endDate, setEndDate] = useState('')
   const [travelers, setTravelers] = useState('2')
   const [budget, setBudget] = useState('')
-  const [origin, setOrigin] = useState('')
+  const { originCity, setOriginCity } = useDeviceOriginCity()
   const [error, setError] = useState<string | null>(null)
 
   const handleContinue = async () => {
@@ -48,7 +49,7 @@ export default function TripWizardScreen() {
         endDate: endDate || undefined,
         travelers: Number(travelers) || 1,
         budgetUsd: budget ? Number(budget) : undefined,
-        originCity: origin.trim() || undefined,
+        originCity: originCity.trim() || undefined,
         status: 'draft',
       })
 
@@ -106,8 +107,8 @@ export default function TripWizardScreen() {
           <CityAutocompleteInput
             label="Origin city"
             placeholder="Delhi, India"
-            value={origin}
-            onChangeText={setOrigin}
+            value={originCity}
+            onChangeText={setOriginCity}
             listZIndex={10}
           />
           <DatePickerField

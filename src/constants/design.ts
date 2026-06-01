@@ -79,7 +79,16 @@ export const quickActions = [
   },
 ] as const
 
-export const featuredDestinations = [
+/** Shared shape for home discovery destination cards. */
+export type DestinationCatalogItem = {
+  id: string
+  name: string
+  country: string
+  tagline: string
+  image: string
+}
+
+export const featuredDestinations: DestinationCatalogItem[] = [
   {
     id: 'bali',
     name: 'Bali',
@@ -131,10 +140,10 @@ export const travelBanners = [
       'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=1200&q=80',
     cta: 'Explore cities',
   },
-] as const
+]
 
 /** Curated picks for “Recommended” — distinct from featured carousel order. */
-export const recommendedPlaces = [
+export const recommendedPlaces: DestinationCatalogItem[] = [
   {
     id: 'maldives',
     name: 'Maldives',
@@ -159,10 +168,10 @@ export const recommendedPlaces = [
     image:
       'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80',
   },
-] as const
+]
 
 /** Same catalogue as featured, reordered for a second horizontal rail. */
-export const trendingDestinations: readonly (typeof featuredDestinations)[number][] = [
+export const trendingDestinations: DestinationCatalogItem[] = [
   featuredDestinations[2],
   featuredDestinations[0],
   featuredDestinations[3],

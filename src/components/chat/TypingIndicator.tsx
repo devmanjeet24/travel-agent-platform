@@ -5,7 +5,7 @@ import { brand } from '@/constants/design';
 import { radii } from '@/lib/ui-styles';
 import { useThemedStyles } from '@/hooks/use-themed-styles';
 
-function Dot({ delay }: { delay: number }) {
+function Dot({ delay, color }: { delay: number; color: string }) {
   const [opacity] = useState(() => new Animated.Value(0.35));
 
   useEffect(() => {
@@ -26,7 +26,7 @@ function Dot({ delay }: { delay: number }) {
         width: 7,
         height: 7,
         borderRadius: 4,
-        backgroundColor: brand.primaryDark,
+        backgroundColor: color,
         opacity,
         marginHorizontal: 3,
       }}
@@ -36,6 +36,7 @@ function Dot({ delay }: { delay: number }) {
 
 export function TypingIndicator() {
   const theme = useThemedStyles();
+  const dotColor = theme.isDark ? brand.ai : brand.primaryDark;
 
   return (
     <View
@@ -58,9 +59,9 @@ export function TypingIndicator() {
           borderColor: theme.colors.border,
         }}
       >
-        <Dot delay={0} />
-        <Dot delay={160} />
-        <Dot delay={320} />
+        <Dot delay={0} color={dotColor} />
+        <Dot delay={160} color={dotColor} />
+        <Dot delay={320} color={dotColor} />
       </View>
     </View>
   );

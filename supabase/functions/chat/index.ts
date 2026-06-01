@@ -32,6 +32,7 @@ Rules:
 - Continue from [CHAT MEMORY] and recent messages; ask one short follow-up when details are missing.
 - DB changes only via tools; never claim a mutation unless a tool succeeded.
 - New full trips need destination, origin, dates/duration, travelers, INR budget (draft OK if requested).
+- If [CLIENT TRIP CONTEXT] includes origin, use it and do not ask for origin city unless the user wants to change it.
 - [LIVE TRAVEL DATA]: weather, named hotels/places, real trains only when present; mark estimates as approximate; no invented train numbers if [AI TRAIN FALLBACK].
 ${CHAT_TRANSPORT_HINT_SHORT}
 Reply in 2–5 short sentences unless the user asks for detail.`;
@@ -69,6 +70,26 @@ function trimHistoryMessage(content: string): string {
   const trimmed = content.trim();
   if (trimmed.length <= MAX_MESSAGE_CHARS) return trimmed;
   return `${trimmed.slice(0, MAX_MESSAGE_CHARS - 1)}…`;
+}
+
+function formatClientTripContext(ctx: RequestBody['tripContext']): string | null {
+  if (!ctx) return null;
+  const lines: string[] = [];
+  if (ctx.destination?.trim()) lines.push(`Destination: ${ctx.destination.trim()}`);
+  if (ctx.origin?.trim()) {
+    lines.push(
+      `Origin city: ${ctx.origin.trim()} (from device GPS or user input — do not ask for origin unless they want to change it)`,
+    );
+  }
+  if (ctx.startDate?.trim()) lines.push(`Start date: ${ctx.startDate.trim()}`);
+  if (ctx.endDate?.trim()) lines.push(`End date: ${ctx.endDate.trim()}`);
+  if (ctx.budgetInr != null && Number.isFinite(ctx.budgetInr)) {
+    lines.push(`Budget INR: ${ctx.budgetInr}`);
+  }
+  if (ctx.travelers != null && Number.isFinite(ctx.travelers)) {
+    lines.push(`Travelers: ${ctx.travelers}`);
+  }
+  return lines.length ? lines.join('\n') : null;
 }
 
 type ChatMessage = ChatHistoryMessage;
@@ -666,10 +687,13 @@ deno.Deno.serve(async (req) => {
       memoryText = `${memoryText.slice(0, MEMORY_CONTEXT_MAX - 1)}…`;
     }
 
+    const clientTripContext = formatClientTripContext(tripContext);
+
     const systemWithContext = [
       SYSTEM_PROMPT,
       '',
       memoryText,
+      clientTripContext ? `\n[CLIENT TRIP CONTEXT]\n${clientTripContext}` : '',
       conversationSummary ? `\n[CONVERSATION SUMMARY]\n${conversationSummary.slice(0, 600)}` : '',
       liveData ? `\n[LIVE TRAVEL DATA]\n${liveData}` : '',
     ]

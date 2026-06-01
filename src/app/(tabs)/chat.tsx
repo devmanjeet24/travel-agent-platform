@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { ChatComposer } from '@/components/chat/ChatComposer'
 import { ChatHeader } from '@/components/chat/ChatHeader'
+import { OriginCityBar } from '@/components/chat/OriginCityBar'
 import { ChatBubble } from '@/components/ui/ChatBubble'
 import { brand, spacing } from '@/constants/design'
 import { useResponsive } from '@/hooks/use-responsive'
@@ -32,7 +33,8 @@ import {
 } from '@/services/chat/chat-db'
 import { loadChatSessionCache, saveChatSessionCache } from '@/lib/chat-offline-cache'
 import { useIsOffline } from '@/hooks/use-offline-sync'
-import { parseTripContextFromMessage } from '@/utils/trip-context-parse'
+import { useDeviceOriginCity } from '@/hooks/use-device-origin-city'
+import { buildTripContextForChat } from '@/utils/build-trip-context'
 import { deriveChatTitle } from '@/utils/chat-title'
 import type { ChatAttachment, ChatHistoryItem, ChatMessage } from '@/services/chat'
 import { uploadChatAttachment } from '@/services/travel/travel-api'
@@ -84,6 +86,15 @@ export default function ChatScreen() {
   const [conversationId, setConversationId] = useState<string | undefined>(params.conversationId)
   const [conversationTitle, setConversationTitle] = useState(DEFAULT_HEADER_TITLE)
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
+  const [originBarDismissed, setOriginBarDismissed] = useState(false)
+  const {
+    originCity,
+    setOriginCity,
+    status: originStatus,
+    needsManualEntry,
+    retryDetection,
+    isDetecting,
+  } = useDeviceOriginCity()
 
   const keyboardInset = useKeyboardBottomInset()
   const isKeyboardOpen = keyboardInset > 0
@@ -148,7 +159,7 @@ export default function ChatScreen() {
       setPendingAttachments([])
       scrollToEnd()
 
-      const tripContext = parseTripContextFromMessage(trimmed)
+      const tripContext = buildTripContextForChat({ message: trimmed, originCity })
 
       await sendChatWithStream(
         {
@@ -157,7 +168,7 @@ export default function ChatScreen() {
           conversationId,
           tripId: params.tripId,
           attachments: attachmentsToSend,
-          tripContext: Object.keys(tripContext).length ? tripContext : undefined,
+          tripContext,
         },
         {
           onDelta: (delta) => {
@@ -216,6 +227,7 @@ export default function ChatScreen() {
       isSending,
       messages,
       params.tripId,
+      originCity,
       pendingAttachments,
       router,
       scrollToEnd,
@@ -433,9 +445,9 @@ export default function ChatScreen() {
           style={{ flex: 1 }}
           contentContainerStyle={{
             paddingHorizontal: listPadX,
-            paddingTop: 16,
+            paddingTop: spacing.md,
             paddingBottom:
-              16 +
+              spacing.lg +
               (Platform.OS === 'android' && isKeyboardOpen
                 ? keyboardInset + 72
                 : tabInsets.composerBottomPadding * 0.35),
@@ -447,19 +459,21 @@ export default function ChatScreen() {
           showsVerticalScrollIndicator={false}
           onContentSizeChange={scrollToEnd}
           ListEmptyComponent={
-            <View style={{ alignItems: 'center', paddingTop: 56, paddingHorizontal: 28 }}>
+            <View style={{ alignItems: 'center', paddingTop: 48, paddingHorizontal: spacing.xl }}>
               <View
                 style={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: 36,
+                  width: 68,
+                  height: 68,
+                  borderRadius: 34,
                   backgroundColor: theme.colors.aiMuted,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  marginBottom: 20,
+                  marginBottom: spacing.lg,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
                 }}
               >
-                <Sparkles size={32} color={brand.primaryDark} />
+                <Sparkles size={30} color={theme.isDark ? brand.ai : brand.primaryDark} />
               </View>
               <Text
                 style={{
@@ -476,29 +490,36 @@ export default function ChatScreen() {
                 style={{
                   color: theme.colors.textMuted,
                   textAlign: 'center',
-                  marginTop: 10,
-                  lineHeight: 24,
+                  marginTop: spacing.sm + 2,
+                  lineHeight: 22,
                   fontSize: 15,
+                  maxWidth: 300,
                 }}
               >
-                Ask about destinations, budgets, or day-by-day plans. Tap the mic for a voice
-                conversation with spoken replies.
+                Ask about destinations, budgets, or day-by-day plans. Tap the mic for voice chat
+                with spoken replies.
               </Text>
               <Pressable
                 onPress={() =>
                   setInput('5 days in Goa in August, 2 people, ₹50000 budget, from Delhi.')
                 }
-                style={{
-                  marginTop: 20,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
+                style={({ pressed }) => ({
+                  marginTop: spacing.lg,
+                  paddingHorizontal: spacing.lg,
+                  paddingVertical: spacing.md,
                   borderRadius: radii.pill,
-                  backgroundColor: theme.colors.card,
+                  backgroundColor: pressed ? theme.colors.muted : theme.colors.card,
                   borderWidth: 1,
                   borderColor: theme.colors.border,
-                }}
+                })}
               >
-                <Text style={{ color: brand.primaryDark, fontSize: 14, fontWeight: '600' }}>
+                <Text
+                  style={{
+                    color: theme.isDark ? '#93C5FD' : brand.primaryDark,
+                    fontSize: 14,
+                    fontWeight: '600',
+                  }}
+                >
                   Try a sample prompt
                 </Text>
               </Pressable>
@@ -531,6 +552,19 @@ export default function ChatScreen() {
             </View>
           )}
         />
+
+        {!originBarDismissed ? (
+          <OriginCityBar
+            originCity={originCity}
+            onChangeOriginCity={setOriginCity}
+            status={originStatus}
+            needsManualEntry={needsManualEntry}
+            isDetecting={isDetecting}
+            onRetryDetection={() => void retryDetection()}
+            onDismiss={() => setOriginBarDismissed(true)}
+            horizontalPadding={listPadX}
+          />
+        ) : null}
 
         <ChatComposer
           input={input}
