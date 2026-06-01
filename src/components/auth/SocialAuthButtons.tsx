@@ -17,12 +17,11 @@ export function SocialAuthButtons({ onError, disabled }: Props) {
   const theme = useThemedStyles()
   const oauth = useOAuthSignInMutation()
   const loading = oauth.isPending
-  const loadingProvider = oauth.variables
   const isDisabled = disabled || loading
 
-  const handleOAuth = (provider: 'google' | 'apple') => {
+  const handleGoogleSignIn = () => {
     if (isDisabled) return
-    oauth.mutate(provider, {
+    oauth.mutate('google', {
       onSuccess: ({ error }) => {
         if (error) {
           onError?.(error)
@@ -47,7 +46,7 @@ export function SocialAuthButtons({ onError, disabled }: Props) {
       </Text>
 
       <Pressable
-        onPress={() => handleOAuth('google')}
+        onPress={handleGoogleSignIn}
         disabled={isDisabled}
         accessibilityState={{ disabled: isDisabled }}
         style={[
@@ -68,7 +67,7 @@ export function SocialAuthButtons({ onError, disabled }: Props) {
         ]}
         className="active:opacity-90"
       >
-        {loading && loadingProvider === 'google' ? (
+        {loading ? (
           <ActivityIndicator color={brand.primaryDark} />
         ) : (
           <>
@@ -88,43 +87,6 @@ export function SocialAuthButtons({ onError, disabled }: Props) {
             </View>
             <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 16 }}>
               Continue with Google
-            </Text>
-          </>
-        )}
-      </Pressable>
-
-      <Pressable
-        onPress={() => handleOAuth('apple')}
-        disabled={isDisabled}
-        accessibilityState={{ disabled: isDisabled }}
-        style={[
-          {
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 10,
-            backgroundColor: theme.isDark ? '#FFFFFF' : '#000000',
-            borderRadius: radii.pill,
-            minHeight: 52,
-            paddingHorizontal: 20,
-            opacity: isDisabled && !loading ? 0.6 : 1,
-          },
-          cardShadow(theme.isDark, false),
-        ]}
-        className="active:opacity-90"
-      >
-        {loading && loadingProvider === 'apple' ? (
-          <ActivityIndicator color={theme.isDark ? '#000' : '#FFF'} />
-        ) : (
-          <>
-            <Text
-              style={{
-                color: theme.isDark ? '#000000' : '#FFFFFF',
-                fontWeight: '600',
-                fontSize: 16,
-              }}
-            >
-              Continue with Apple
             </Text>
           </>
         )}

@@ -27,9 +27,6 @@ const iconMap: Record<(typeof discoveryCategories)[number]['icon'], LucideIcon> 
   Landmark,
 }
 
-/** Matches SectionTitle `compactTop` — offsets gap before Explore without changing Home. */
-const EXPLORE_TITLE_OFFSET = spacing['2xl']
-
 const CHIP_HEIGHT = 44
 const CHIP_ICON_SIZE = 15
 const CHIP_FONT_SIZE = 13
@@ -95,14 +92,7 @@ export function CategoryChipRow({ width, selectedId = 'all', onSelect }: Props) 
   const theme = useThemedStyles()
 
   return (
-    <View
-      style={{
-        width,
-        marginTop: spacing.md,
-        marginBottom: -EXPLORE_TITLE_OFFSET,
-      }}
-      collapsable={false}
-    >
+    <View style={{ width, marginTop: spacing.md }} collapsable={false}>
       <ScrollView
         horizontal
         nestedScrollEnabled

@@ -21,7 +21,7 @@ export default function SectionTitle({
   compactTop,
 }: Props) {
   const theme = useThemedStyles()
-  const top = compactTop ? spacing['2xl'] : spacing['3xl']
+  const top = compactTop ? spacing.md : spacing['3xl']
 
   return (
     <View style={{ marginTop: top, marginBottom: spacing.lg }}>
