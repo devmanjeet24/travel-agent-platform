@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import {
   Building2,
   Globe,
@@ -11,7 +11,12 @@ import {
 import { brand, discoveryCategories, spacing } from '@/constants/design'
 import { textWithWeight } from '@/constants/inter-typography'
 import { typography } from '@/constants/typography'
-import { horizontalRailContentStyle, horizontalRailItemStyle } from '@/lib/layout-native'
+import {
+  horizontalRailContentStyle,
+  horizontalRailItemStyle,
+  surfaceBorder,
+} from '@/lib/layout-native'
+import { radii } from '@/lib/ui-styles'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 const iconMap: Record<(typeof discoveryCategories)[number]['icon'], LucideIcon> = {
@@ -22,7 +27,15 @@ const iconMap: Record<(typeof discoveryCategories)[number]['icon'], LucideIcon> 
   Landmark,
 }
 
-const CHIP_ROW_HEIGHT = 44
+/** Matches SectionTitle `compactTop` — offsets gap before Explore without changing Home. */
+const EXPLORE_TITLE_OFFSET = spacing['2xl']
+
+const CHIP_HEIGHT = 44
+const CHIP_ICON_SIZE = 15
+const CHIP_FONT_SIZE = 13
+const CHIP_PAD_H = 14
+const CHIP_ICON_GAP = 6
+const CHIP_FONT_WEIGHT = '600' as const
 
 interface Props {
   width: number
@@ -35,64 +48,71 @@ function CategoryChip({
   icon: Icon,
   selected,
   onPress,
-  inactiveSurface,
+  isDark,
 }: {
   label: string
   icon: LucideIcon
   selected: boolean
   onPress: () => void
-  inactiveSurface: string
+  isDark: boolean
 }) {
   const theme = useThemedStyles()
   const inactiveIcon = theme.isDark ? '#94A3B8' : theme.colors.icon
   const inactiveText = theme.isDark ? '#E2E8F0' : theme.colors.text
 
   return (
-    <Pressable
+    <TouchableOpacity
+      activeOpacity={0.92}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.chipPressable,
-        {
-          backgroundColor: selected ? brand.primary : inactiveSurface,
-          opacity: pressed ? 0.92 : 1,
-        },
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      style={[
+        styles.chip,
+        selected
+          ? styles.chipSelected
+          : surfaceBorder(isDark),
       ]}
     >
-      <View style={styles.chipRow}>
-        <Icon
-          size={15}
-          color={selected ? '#FFFFFF' : inactiveIcon}
-          strokeWidth={1.75}
-        />
-        <Text
-          style={textWithWeight(typography.label, '600', {
-            color: selected ? '#FFFFFF' : inactiveText,
-            fontSize: 13,
-            marginLeft: 6,
-          })}
-        >
-          {label}
-        </Text>
-      </View>
-    </Pressable>
+      <Icon
+        size={CHIP_ICON_SIZE}
+        color={selected ? '#FFFFFF' : inactiveIcon}
+        strokeWidth={1.75}
+      />
+      <Text
+        style={textWithWeight(typography.label, CHIP_FONT_WEIGHT, {
+          color: selected ? '#FFFFFF' : inactiveText,
+          fontSize: CHIP_FONT_SIZE,
+          marginLeft: CHIP_ICON_GAP,
+        })}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
   )
 }
 
 export function CategoryChipRow({ width, selectedId = 'all', onSelect }: Props) {
   const theme = useThemedStyles()
-  const inactiveSurface = theme.isDark ? '#131C2E' : theme.colors.card
 
   return (
-    <View style={{ width, height: CHIP_ROW_HEIGHT }} collapsable={false}>
+    <View
+      style={{
+        width,
+        marginTop: spacing.md,
+        marginBottom: -EXPLORE_TITLE_OFFSET,
+      }}
+      collapsable={false}
+    >
       <ScrollView
         horizontal
         nestedScrollEnabled
         showsHorizontalScrollIndicator={false}
         overScrollMode="never"
         keyboardShouldPersistTaps="handled"
-        style={{ width, height: CHIP_ROW_HEIGHT }}
+        removeClippedSubviews={false}
+        style={{ width, height: CHIP_HEIGHT }}
         contentContainerStyle={horizontalRailContentStyle({
-          height: CHIP_ROW_HEIGHT,
+          height: CHIP_HEIGHT,
           alignItems: 'center',
           paddingRight: spacing.md,
         })}
@@ -107,7 +127,7 @@ export function CategoryChipRow({ width, selectedId = 'all', onSelect }: Props) 
               label={item.label}
               icon={iconMap[item.icon]}
               selected={item.id === selectedId}
-              inactiveSurface={inactiveSurface}
+              isDark={theme.isDark}
               onPress={() => onSelect(item.id)}
             />
           </View>
@@ -118,17 +138,19 @@ export function CategoryChipRow({ width, selectedId = 'all', onSelect }: Props) 
 }
 
 const styles = StyleSheet.create({
-  chipPressable: {
-    borderRadius: 999,
-    height: CHIP_ROW_HEIGHT,
-    justifyContent: 'center',
-    overflow: 'hidden',
-    elevation: 0,
-  },
-  chipRow: {
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    height: CHIP_HEIGHT,
+    paddingHorizontal: CHIP_PAD_H,
+    borderRadius: radii.pill,
+    elevation: 0,
+  },
+  chipSelected: {
+    backgroundColor: brand.primary,
+    borderWidth: 0,
   },
   chipGap: {
     marginLeft: spacing.sm,

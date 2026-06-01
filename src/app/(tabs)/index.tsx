@@ -250,7 +250,7 @@ export default function HomeScreen() {
 
       case 'categories':
         return (
-          <View style={{ width: contentWidth, marginTop: spacing.md }}>
+          <View style={{ width: contentWidth }}>
             <CategoryChipRow
               width={contentWidth}
               selectedId={categoryId}
