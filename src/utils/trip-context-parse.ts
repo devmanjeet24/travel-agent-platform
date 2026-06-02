@@ -15,7 +15,9 @@ export function parseTripContextFromMessage(text: string): ParsedTripContext {
   const ctx: ParsedTripContext = {}
 
   const destMatch = text.match(
-    /(?:to|in|visit|trip to|going to)\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\s+with\s+|\.|,|$)/i,
+    /(?:to|in|visit|trip to|going to|(?:planned\s+)?to\s+go)\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\s+with\s+|\.|,|$)/i,
+  ) ?? text.match(
+    /\bgo(?:ing)?\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\.|,|$)/i,
   )
   if (destMatch) {
     const destination = destMatch[1].trim()
@@ -39,8 +41,38 @@ export function parseTripContextFromMessage(text: string): ParsedTripContext {
   )
   if (originMatch) ctx.origin = originMatch[1].trim()
 
-  const isoDate = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/)
-  if (isoDate) ctx.startDate = isoDate[1]
+  const isoDates = [...text.matchAll(/\b(20\d{2}-\d{2}-\d{2})\b/g)].map((match) => match[1])
+  if (isoDates[0]) ctx.startDate = isoDates[0]
+  if (isoDates[1]) ctx.endDate = isoDates[1]
+
+  const monthRangeMatch = text.match(
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december)\.?\s+(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})(?:,?\s*(20\d{2}))?\b/i,
+  )
+  if (monthRangeMatch) {
+    const months: Record<string, number> = {
+      january: 1,
+      february: 2,
+      march: 3,
+      april: 4,
+      may: 5,
+      june: 6,
+      july: 7,
+      august: 8,
+      september: 9,
+      october: 10,
+      november: 11,
+      december: 12,
+    }
+    const month = months[monthRangeMatch[1].toLowerCase()]
+    const year = monthRangeMatch[4]
+      ? Number(monthRangeMatch[4])
+      : new Date().getFullYear()
+    const pad = (n: number) => (n < 10 ? `0${n}` : String(n))
+    if (month) {
+      ctx.startDate = `${year}-${pad(month)}-${pad(Number(monthRangeMatch[2]))}`
+      ctx.endDate = `${year}-${pad(month)}-${pad(Number(monthRangeMatch[3]))}`
+    }
+  }
 
   return ctx
 }

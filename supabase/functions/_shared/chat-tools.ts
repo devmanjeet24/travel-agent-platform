@@ -14,6 +14,20 @@ export type ChatHistoryMessage = {
   content: string;
 };
 
+export type GatheredTripContext = {
+  destination?: string;
+  origin?: string;
+  startDate?: string;
+  endDate?: string;
+  budgetInr?: number;
+  travelers?: number;
+};
+
+export type TripRequirementsAssessment = {
+  complete: boolean;
+  missing: string[];
+};
+
 type TripSummary = {
   id: string;
   title: string;
@@ -134,7 +148,8 @@ export const CHAT_AGENT_TOOLS = [
     type: 'function',
     function: {
       name: 'create_trip',
-      description: 'Create a trip (draft or full plan when details are known).',
+      description:
+        'Create a trip after the user confirms a full summary. Use status "saved" only after explicit confirmation; otherwise use "draft". Requires destination, origin, start/end dates, travelers, and INR budget.',
       parameters: {
         type: 'object',
         required: ['destination'],
@@ -296,21 +311,422 @@ function scoreTrip(trip: TripSummary, query: string): number {
   return score;
 }
 
-export function isTripConfirmationMessage(message: string): boolean {
+const MONTH_NAME_TO_NUMBER: Record<string, number> = {
+  january: 1,
+  jan: 1,
+  february: 2,
+  feb: 2,
+  march: 3,
+  mar: 3,
+  april: 4,
+  apr: 4,
+  may: 5,
+  june: 6,
+  jun: 6,
+  july: 7,
+  jul: 7,
+  august: 8,
+  aug: 8,
+  september: 9,
+  sep: 9,
+  sept: 9,
+  october: 10,
+  oct: 10,
+  november: 11,
+  nov: 11,
+  december: 12,
+  dec: 12,
+};
+
+function padIsoDatePart(value: number): string {
+  return value < 10 ? `0${value}` : String(value);
+}
+
+function toIsoDate(year: number, month: number, day: number): string | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return `${year}-${padIsoDatePart(month)}-${padIsoDatePart(day)}`;
+}
+
+function inferTripYear(month: number, day: number, explicitYear?: number): number {
+  if (explicitYear) return explicitYear;
+  const now = new Date();
+  let year = now.getUTCFullYear();
+  const candidate = Date.UTC(year, month - 1, day);
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  if (candidate < today) year += 1;
+  return year;
+}
+
+function isWeakDestinationLabel(destination: string): boolean {
+  const normalized = destination.trim().toLowerCase();
+  return (
+    normalized.length < 3 ||
+    /^(this|that|there|here)(\s+trip)?$/.test(normalized) ||
+    normalized === 'this trip' ||
+    normalized === 'the trip'
+  );
+}
+
+/** Best-effort extraction from natural-language chat (current + prior user turns). */
+export function parseTripContextFromText(text: string): GatheredTripContext {
+  const ctx: GatheredTripContext = {};
+  const destMatch = text.match(
+    /(?:to|in|visit|trip to|going to|plan(?:ning)?\s+(?:a\s+)?trip\s+to|(?:planned\s+)?to\s+go)\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\s+with\s+|\.|,|$)/i,
+  ) ?? text.match(
+    /\bgo(?:ing)?\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\.|,|$)/i,
+  );
+  if (destMatch) {
+    const destination = destMatch[1].trim();
+    if (!isWeakDestinationLabel(destination)) ctx.destination = destination;
+  }
+
+  const budgetInr = parseBudgetFromText(text);
+  if (budgetInr != null) ctx.budgetInr = budgetInr;
+
+  const travelersMatch = text.match(
+    /(\d+)\s*(?:people|travelers|travellers|guests|pax|friends?|adults?)/i,
+  );
+  if (travelersMatch) ctx.travelers = Number(travelersMatch[1]);
+
+  const originMatch = text.match(
+    /(?:from|flying from|leaving)\s+([A-Za-z][A-Za-z\s]{2,30}?)(?:\s+to\s+|\s+in\s+|\.|,|$)/i,
+  );
+  if (originMatch) ctx.origin = originMatch[1].trim();
+
+  const isoDates = [...text.matchAll(/\b(20\d{2}-\d{2}-\d{2})\b/g)].map((match) => match[1]);
+  if (isoDates[0]) ctx.startDate = isoDates[0];
+  if (isoDates[1]) ctx.endDate = isoDates[1];
+
+  const dmyMatch = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
+  if (dmyMatch) {
+    const day = Number(dmyMatch[1]);
+    const month = Number(dmyMatch[2]);
+    const year = Number(dmyMatch[3]);
+    const iso = toIsoDate(year, month, day);
+    if (iso) ctx.startDate = iso;
+  }
+
+  const monthRangeMatch = text.match(
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})(?:,?\s*(20\d{2}))?\b/i,
+  );
+  if (monthRangeMatch) {
+    const month = MONTH_NAME_TO_NUMBER[monthRangeMatch[1].toLowerCase()];
+    const startDay = Number(monthRangeMatch[2]);
+    const endDay = Number(monthRangeMatch[3]);
+    const year = inferTripYear(month, startDay, monthRangeMatch[4] ? Number(monthRangeMatch[4]) : undefined);
+    const startIso = toIsoDate(year, month, startDay);
+    const endIso = toIsoDate(year, month, endDay);
+    if (startIso) ctx.startDate = startIso;
+    if (endIso) ctx.endDate = endIso;
+  }
+
+  const durationMatch = text.match(/\bfor\s+(\d{1,2})\s+days?\b/i);
+  if (durationMatch && ctx.startDate && !ctx.endDate) {
+    const start = new Date(`${ctx.startDate}T00:00:00Z`);
+    if (!Number.isNaN(start.getTime())) {
+      const days = Number(durationMatch[1]);
+      const end = new Date(start.getTime() + Math.max(1, days - 1) * 86_400_000);
+      ctx.endDate = end.toISOString().slice(0, 10);
+    }
+  }
+
+  return ctx;
+}
+
+export function mergeGatheredTripContext(
+  ...sources: Array<GatheredTripContext | undefined | null>
+): GatheredTripContext {
+  const merged: GatheredTripContext = {};
+  for (const source of sources) {
+    if (!source) continue;
+    if (source.destination?.trim()) merged.destination = source.destination.trim();
+    if (source.origin?.trim()) merged.origin = source.origin.trim();
+    if (source.startDate?.trim()) merged.startDate = source.startDate.trim();
+    if (source.endDate?.trim()) merged.endDate = source.endDate.trim();
+    if (source.budgetInr != null && Number.isFinite(source.budgetInr)) {
+      merged.budgetInr = source.budgetInr;
+    }
+    if (source.travelers != null && Number.isFinite(source.travelers)) {
+      merged.travelers = Math.max(1, Math.round(source.travelers));
+    }
+  }
+  return merged;
+}
+
+export function gatherTripContextFromHistory(
+  history: ChatHistoryMessage[],
+): GatheredTripContext {
+  let merged: GatheredTripContext = {};
+  for (const item of history) {
+    if (item.role !== 'user') continue;
+    merged = mergeGatheredTripContext(merged, parseTripContextFromText(item.content));
+  }
+  return merged;
+}
+
+export function assessTripRequirements(ctx: GatheredTripContext): TripRequirementsAssessment {
+  const missing: string[] = [];
+  if (!ctx.destination?.trim()) missing.push('destination');
+  if (!ctx.origin?.trim()) missing.push('origin city');
+  if (!ctx.startDate?.trim() || !ctx.endDate?.trim()) missing.push('travel dates');
+  if (ctx.budgetInr == null || !Number.isFinite(ctx.budgetInr)) missing.push('INR budget');
+  if (ctx.travelers == null || !Number.isFinite(ctx.travelers)) missing.push('traveler count');
+  return { complete: missing.length === 0, missing };
+}
+
+export function formatGatheredTripDetailsSection(
+  ctx: GatheredTripContext,
+  assessment?: TripRequirementsAssessment,
+): string {
+  const status = assessment ?? assessTripRequirements(ctx);
+  const known: string[] = [];
+  if (ctx.destination) known.push(`destination=${ctx.destination}`);
+  if (ctx.origin) known.push(`origin=${ctx.origin}`);
+  if (ctx.startDate) known.push(`start=${ctx.startDate}`);
+  if (ctx.endDate) known.push(`end=${ctx.endDate}`);
+  if (ctx.budgetInr != null) known.push(`budget INR=${ctx.budgetInr}`);
+  if (ctx.travelers != null) known.push(`travelers=${ctx.travelers}`);
+
+  const lines = ['[GATHERED TRIP DETAILS]'];
+  lines.push(
+    known.length
+      ? `Known from this conversation (do NOT ask again): ${known.join('; ')}.`
+      : 'Known from this conversation: none yet.',
+  );
+  lines.push(
+    status.complete
+      ? 'Still needed: none — all required trip fields are present.'
+      : `Still needed (ask at most ONE of these): ${status.missing.join(', ')}.`,
+  );
+  if (status.complete) {
+    lines.push(
+      'Before create_trip: present a short confirmation summary (destination, origin, dates, travelers, INR budget) and wait for explicit user approval. Do not call create_trip or set status saved until they confirm.',
+    );
+  }
+  return lines.join('\n');
+}
+
+export function messageProvidesTripDetail(message: string): boolean {
+  const ctx = parseTripContextFromText(message);
+  return Boolean(
+    ctx.destination ||
+      ctx.origin ||
+      ctx.startDate ||
+      ctx.endDate ||
+      ctx.budgetInr != null ||
+      ctx.travelers != null,
+  );
+}
+
+export function messageIsTripPlanningFlow(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    /\b(plan|trip|travel|visit|holiday|vacation|getaway|itinerary|weekend)\b/.test(m) ||
+    /\b(create|make|book|organize|organise)\s+(?:a\s+)?(?:new\s+)?trip\b/.test(m) ||
+    messageProvidesTripDetail(message)
+  );
+}
+
+export function messageIsTripManagementOnly(message: string): boolean {
   const m = message.toLowerCase().trim();
   return (
+    (/\b(delete|remove|cancel)\b/.test(m) && /\b(trip|itinerary|plan)\b/.test(m)) ||
+    (/\b(list|show|how many)\b/.test(m) && /\b(trips?|itinerar(?:y|ies))\b/.test(m)) ||
+    /\b(update|change|edit|regenerate|refresh)\b/.test(m)
+  );
+}
+
+export function resolveTripPersistAction(
+  gathered: GatheredTripContext,
+  activeTrip?: TripSummary,
+): 'create' | 'update' | 'none' {
+  if (!assessTripRequirements(gathered).complete) return 'none';
+  const destination = gathered.destination?.trim();
+  if (!destination) return 'none';
+  if (!activeTrip) return 'create';
+
+  const sameTrip = scoreTrip(activeTrip, destination) >= 8;
+  if (!sameTrip) return 'create';
+
+  const incomplete =
+    !activeTrip.start_date ||
+    !activeTrip.end_date ||
+    !activeTrip.budget_usd ||
+    activeTrip.travelers < 1;
+  if (incomplete || activeTrip.status === 'draft') return 'update';
+  return 'none';
+}
+
+export function tripSummaryToGatheredContext(trip: TripSummary): GatheredTripContext {
+  return {
+    destination: trip.destination,
+    origin: trip.origin_city ?? undefined,
+    startDate: trip.start_date ?? undefined,
+    endDate: trip.end_date ?? undefined,
+    budgetInr: trip.budget_usd != null ? Number(trip.budget_usd) : undefined,
+    travelers: trip.travelers,
+  };
+}
+
+export function canPersistTripFromChat(message: string, gathered: GatheredTripContext): boolean {
+  return assessTripRequirements(gathered).complete && isTripConfirmationMessage(message);
+}
+
+export async function maybeAutoPersistTrip(input: {
+  supabase: SupabaseClient;
+  userId: string;
+  authHeader: string;
+  message: string;
+  gathered: GatheredTripContext;
+  activeTrip?: TripSummary;
+  activeTripId?: string;
+}): Promise<{
+  effects: ChatToolEffect[];
+  contextSection: string;
+  disableTools: boolean;
+  connectedTripId?: string;
+  openTripId?: string;
+}> {
+  const assessment = assessTripRequirements(input.gathered);
+  const contextSection = formatGatheredTripDetailsSection(input.gathered, assessment);
+
+  if (
+    !canPersistTripFromChat(input.message, input.gathered) ||
+    messageIsTripManagementOnly(input.message)
+  ) {
+    return { effects: [], contextSection, disableTools: false };
+  }
+
+  const action = resolveTripPersistAction(input.gathered, input.activeTrip);
+  if (action === 'none') {
+    return { effects: [], contextSection, disableTools: false };
+  }
+
+  const sharedArgs = {
+    destination: input.gathered.destination,
+    originCity: input.gathered.origin,
+    startDate: input.gathered.startDate,
+    endDate: input.gathered.endDate,
+    budgetInr: input.gathered.budgetInr,
+    travelers: input.gathered.travelers,
+    status: 'saved',
+    generatePlan: true,
+    refreshTravelOptions: Boolean(input.gathered.origin && input.gathered.startDate),
+  };
+
+  if (action === 'create') {
+    const result = await executeChatTool({
+      name: 'create_trip',
+      args: sharedArgs,
+      supabase: input.supabase,
+      userId: input.userId,
+      authHeader: input.authHeader,
+      activeTripId: input.activeTripId,
+      allowSavedTripCreate: true,
+    });
+    if (!result.toolResult.success) {
+      return { effects: [], contextSection, disableTools: false };
+    }
+    const effects = result.effect ? [result.effect] : [];
+    return {
+      effects,
+      contextSection: [
+        contextSection,
+        '[AUTO ACTION]',
+        'create_trip succeeded. Confirm the trip is saved and the user can view it in the Trips tab. Do not ask for details already listed under Known.',
+      ].join('\n'),
+      disableTools: true,
+      connectedTripId: result.effect?.tripId,
+      openTripId: result.effect?.openTripId,
+    };
+  }
+
+  const result = await executeChatTool({
+    name: 'update_trip',
+    args: {
+      tripId: input.activeTrip!.id,
+      ...sharedArgs,
+      rebalanceBudget: true,
+    },
+    supabase: input.supabase,
+    userId: input.userId,
+    authHeader: input.authHeader,
+    activeTripId: input.activeTripId,
+    allowSavedTripCreate: true,
+  });
+  if (!result.toolResult.success) {
+    return { effects: [], contextSection, disableTools: false };
+  }
+
+  const effects = result.effect ? [result.effect] : [];
+  let connectedTripId = result.effect?.tripId;
+  let openTripId: string | undefined;
+
+  const shouldRegenerate =
+    input.activeTrip!.status === 'draft' ||
+    !input.activeTrip!.start_date ||
+    !input.activeTrip!.end_date;
+  if (shouldRegenerate) {
+    const regen = await executeChatTool({
+      name: 'regenerate_trip_plan',
+      args: { tripId: input.activeTrip!.id },
+      supabase: input.supabase,
+      userId: input.userId,
+      authHeader: input.authHeader,
+      activeTripId: input.activeTripId,
+    });
+    if (regen.effect) effects.push(regen.effect);
+    connectedTripId = regen.effect?.tripId ?? connectedTripId;
+  }
+
+  return {
+    effects,
+    contextSection: [
+      contextSection,
+      '[AUTO ACTION]',
+      'update_trip (and plan regeneration when needed) succeeded. Confirm the trip is saved and viewable in the Trips tab. Do not re-ask known fields.',
+    ].join('\n'),
+    disableTools: true,
+    connectedTripId,
+    openTripId,
+  };
+}
+
+export function isTripConfirmationMessage(message: string): boolean {
+  const m = message.toLowerCase().trim();
+  if (m.length > 120) return false;
+  return (
     /\b(save|saved|confirm|confirmed|approve|approved|mark\b.*\bsaved)\b/.test(m) ||
-    /\b(that'?s fine|all good|looks good|all things are correct|everything is correct|everything looks good)\b/.test(m) ||
+    /\b(that'?s fine|all good|looks good|all things are correct|everything is correct|everything looks good|sounds good|go ahead and (?:save|create|book))\b/.test(m) ||
     (/\b(correct|yes|okay|ok|fine|proceed|go ahead)\b/.test(m) &&
-      /\b(trip|itinerary|plan|draft|budget)\b/.test(m))
+      /\b(trip|itinerary|plan|draft|budget|summary|details)\b/.test(m))
   );
 }
 
 export function messageNeedsChatTools(
   message: string,
-  opts?: { activeTripId?: string; activeTripStatus?: string },
+  opts?: {
+    activeTripId?: string;
+    activeTripStatus?: string;
+    gatheredTrip?: GatheredTripContext;
+    tripPlanningComplete?: boolean;
+  },
 ): boolean {
   const m = message.toLowerCase().trim();
+  if (opts?.tripPlanningComplete && !messageIsTripManagementOnly(message)) return true;
+  if (messageProvidesTripDetail(message)) return true;
+  if (opts?.gatheredTrip && assessTripRequirements(opts.gatheredTrip).missing.length <= 2) {
+    return true;
+  }
+  if (messageIsTripPlanningFlow(message)) return true;
   if (m.length < 28 && /^(hi|hello|hey|thanks|thank you|ok|okay|sure|great|cool|good morning|good evening)\b/.test(m)) {
     if (!opts?.activeTripId || !isTripConfirmationMessage(message)) return false;
   }
@@ -338,6 +754,8 @@ export async function finalizeTripOnUserConfirmation(input: {
   const trip = input.activeTrip;
   if (!trip) return null;
   if (!isTripConfirmationMessage(input.message)) return null;
+  const gathered = tripSummaryToGatheredContext(trip);
+  if (!assessTripRequirements(gathered).complete) return null;
   if (trip.status === 'saved' || trip.status === 'completed') return null;
   const alreadyUpdated = input.effects.some(
     (effect) => effect.type === 'update_trip' && effect.tripId === trip.id,
@@ -621,8 +1039,11 @@ export async function buildChatMemoryContext(input: {
   requestedTripId?: string;
   userMessage: string;
   clientHistory?: ChatHistoryMessage[];
+  /** True when starting a brand-new conversation (no cross-chat trip planning bleed). */
+  isNewConversation?: boolean;
 }): Promise<ChatMemoryContext> {
   const { supabase, userId } = input;
+  const isNewConversation = input.isNewConversation ?? !input.conversationId;
   const [conversation, trips] = await Promise.all([
     safeDb('fetch conversation', () => fetchConversation(supabase, userId, input.conversationId)),
     safeDb('fetch trip summaries', () => fetchTripSummaries(supabase, userId)),
@@ -634,10 +1055,9 @@ export async function buildChatMemoryContext(input: {
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)
     .map((item) => item.trip);
-  const activeTripId =
-    input.requestedTripId ??
+  const activeTripId = input.requestedTripId ??
     conversation?.trip_id ??
-    scoredMatches[0]?.id;
+    (isNewConversation ? undefined : scoredMatches[0]?.id);
 
   const includeTripDetails = shouldIncludeTripDetails(input.userMessage);
 
@@ -647,9 +1067,11 @@ export async function buildChatMemoryContext(input: {
         fetchConversationMessages(supabase, input.conversationId!, 8)
       )
       : Promise.resolve(null),
-    safeDb('fetch cross conversation memory', () =>
-      fetchRecentConversationSnippets(supabase, userId, input.conversationId)
-    ),
+    isNewConversation
+      ? Promise.resolve(null)
+      : safeDb('fetch cross conversation memory', () =>
+        fetchRecentConversationSnippets(supabase, userId, input.conversationId)
+      ),
     activeTripId
       ? includeTripDetails
         ? safeDb('fetch active trip details', () => fetchTripDetails(supabase, userId, activeTripId))
@@ -670,7 +1092,9 @@ export async function buildChatMemoryContext(input: {
     authoritativeHistory.length
       ? `Current conversation persisted messages are loaded (${authoritativeHistory.length} recent messages).`
       : 'No persisted current-conversation messages were available; use the client-supplied recent context only.',
-    snippets?.length
+    isNewConversation
+      ? 'This is a new conversation — do not reuse destination, dates, budget, or travelers from other chats; collect fresh details in this thread only.'
+      : snippets?.length
       ? `Recent cross-conversation snippets:\n${snippets.map((s) => `- ${s}`).join('\n')}`
       : 'No prior cross-conversation snippets found.',
     '',
@@ -821,8 +1245,11 @@ export async function executeChatTool(input: {
   userId: string;
   authHeader: string;
   activeTripId?: string;
+  /** When false, create_trip cannot set status saved/upcoming (planning must finish + user confirm first). */
+  allowSavedTripCreate?: boolean;
 }): Promise<ChatToolExecutionResult> {
   const { name, args, supabase, userId, authHeader, activeTripId } = input;
+  const allowSavedTripCreate = input.allowSavedTripCreate === true;
   const tripLookup = {
     tripId: typeof args.tripId === 'string' ? args.tripId : undefined,
     query: typeof args.query === 'string' ? args.query : undefined,
@@ -906,7 +1333,15 @@ export async function executeChatTool(input: {
       typeof args.status === 'string' &&
       ['draft', 'upcoming', 'saved', 'completed'].includes(args.status)
     ) {
-      patch.status = args.status;
+      const nextStatus = args.status;
+      if (
+        (nextStatus === 'saved' || nextStatus === 'upcoming') &&
+        !allowSavedTripCreate
+      ) {
+        // Defer marking saved until the user confirms the planning summary.
+      } else {
+        patch.status = nextStatus;
+      }
     }
 
     const changedFields = Object.keys(patch).filter((key) => key !== 'updated_at');
@@ -969,11 +1404,28 @@ export async function executeChatTool(input: {
     const title = String(args.title ?? '').trim() || destination;
     const budgetInr = asNumber(args.budgetInr);
     const travelers = Math.max(1, Math.round(asNumber(args.travelers) ?? 1));
-    const status =
+    let status =
       typeof args.status === 'string' &&
         ['draft', 'upcoming', 'saved', 'completed'].includes(args.status)
         ? args.status
         : 'draft';
+
+    const hasFullDetails =
+      Boolean(destination) &&
+      typeof args.originCity === 'string' &&
+      Boolean(args.originCity.trim()) &&
+      Boolean(sanitizeTripDate(args.startDate)) &&
+      Boolean(sanitizeTripDate(args.endDate)) &&
+      budgetInr != null &&
+      Number.isFinite(budgetInr) &&
+      travelers >= 1;
+
+    if ((status === 'saved' || status === 'upcoming') && !hasFullDetails) {
+      status = 'draft';
+    }
+    if ((status === 'saved' || status === 'upcoming') && !allowSavedTripCreate) {
+      status = 'draft';
+    }
 
     const { data: trip, error } = await supabase
       .from('trips')

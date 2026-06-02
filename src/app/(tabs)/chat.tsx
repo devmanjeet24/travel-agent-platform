@@ -31,7 +31,11 @@ import {
   fetchConversationMessages,
   fetchLatestConversation,
 } from '@/services/chat/chat-db'
-import { loadChatSessionCache, saveChatSessionCache } from '@/lib/chat-offline-cache'
+import {
+  clearLatestChatSessionPointer,
+  loadChatSessionCache,
+  saveChatSessionCache,
+} from '@/lib/chat-offline-cache'
 import { useIsOffline } from '@/hooks/use-offline-sync'
 import { useDeviceOriginCity } from '@/hooks/use-device-origin-city'
 import { buildTripContextForChat } from '@/utils/build-trip-context'
@@ -91,6 +95,7 @@ export default function ChatScreen() {
   const [conversationTitle, setConversationTitle] = useState(DEFAULT_HEADER_TITLE)
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
   const [originBarDismissed, setOriginBarDismissed] = useState(false)
+  const [isFreshChat, setIsFreshChat] = useState(false)
   const {
     originCity,
     setOriginCity,
@@ -139,6 +144,8 @@ export default function ChatScreen() {
         attachments: [...pendingAttachments],
       }
 
+      if (isFreshChat) setIsFreshChat(false)
+
       if (!conversationId && trimmed) {
         setConversationTitle(deriveChatTitle(trimmed))
       }
@@ -162,7 +169,12 @@ export default function ChatScreen() {
       setPendingAttachments([])
       scrollToEnd()
 
-      const tripContext = buildTripContextForChat({ message: trimmed, originCity })
+      const tripContext = buildTripContextForChat({
+        message: trimmed,
+        originCity,
+        history,
+        conversationId,
+      })
 
       await sendChatWithStream(
         {
@@ -229,8 +241,27 @@ export default function ChatScreen() {
             }
           },
           onError: (msg) => {
-            setError(msg)
-            setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+            const isRateLimit =
+              /rate limit|429|tokens per minute|briefly busy/i.test(msg) ||
+              /try again in [\d.]+s/i.test(msg)
+            if (isRateLimit) {
+              setWarning('Still planning your trip — one moment, then try sending again.')
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        content:
+                          'Still working on your trip plan — please wait a moment and tap send again.',
+                        streaming: false,
+                      }
+                    : m,
+                ),
+              )
+            } else {
+              setError(msg)
+              setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+            }
             setIsSending(false)
             shouldSpeakRef.current = false
           },
@@ -240,6 +271,7 @@ export default function ChatScreen() {
     },
     [
       conversationId,
+      isFreshChat,
       isSending,
       messages,
       params.tripId,
@@ -264,6 +296,8 @@ export default function ChatScreen() {
   }, [voice.speakReply])
 
   const reloadChatHistory = useCallback(async () => {
+    if (isFreshChat && !params.conversationId) return
+
     const cached = await loadChatSessionCache({
       conversationId: params.conversationId,
       tripId: params.tripId,
@@ -307,7 +341,7 @@ export default function ChatScreen() {
       tripId: params.tripId,
       updatedAt: new Date().toISOString(),
     })
-  }, [isOffline, params.conversationId, params.tripId])
+  }, [isFreshChat, isOffline, params.conversationId, params.tripId])
 
   const { refreshing, onRefresh } = usePullToRefresh(async () => {
     try {
@@ -340,7 +374,9 @@ export default function ChatScreen() {
     setError(null)
     setWarning(null)
     setIsSending(false)
-  }, [voice])
+    setIsFreshChat(true)
+    await clearLatestChatSessionPointer(params.tripId)
+  }, [params.tripId, voice])
 
   const pickAttachment = async () => {
     if (!user) {

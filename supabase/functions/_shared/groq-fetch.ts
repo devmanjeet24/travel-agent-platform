@@ -1,4 +1,8 @@
-/** Groq HTTP fetch with a single 429 retry after the server-specified delay. */
+/** Groq HTTP fetch with 429 retries (Retry-After header + exponential backoff). */
+
+const MAX_429_ATTEMPTS = 6;
+const BACKOFF_BASE_MS = 1_000;
+const BACKOFF_MAX_MS = 30_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,12 +32,17 @@ async function retryDelaySeconds(res: Response): Promise<number | null> {
   const fromHeader = retryAfterSecondsFromHeader(res.headers.get('retry-after'));
   if (fromHeader != null) return fromHeader;
 
-  const data = await res.json().catch(() => ({}));
+  const data = await res.clone().json().catch(() => ({}));
   const message =
     typeof (data as { error?: { message?: string } })?.error?.message === 'string'
       ? (data as { error: { message: string } }).error.message
       : '';
   return retryAfterSecondsFromMessage(message);
+}
+
+function exponentialBackoffMs(attempt: number): number {
+  const ms = BACKOFF_BASE_MS * 2 ** attempt;
+  return Math.min(ms, BACKOFF_MAX_MS);
 }
 
 type GroqRequestInit = RequestInit | (() => RequestInit);
@@ -43,7 +52,7 @@ function resolveInit(init: GroqRequestInit): RequestInit {
 }
 
 /**
- * Performs `doFetch` once; on HTTP 429, waits per Retry-After / Groq error text and retries once.
+ * Fetches from Groq; on HTTP 429, waits per Retry-After (or exponential backoff) and retries.
  * Pass `init` as a function when the body is not reusable (e.g. FormData).
  */
 export async function fetchGroqWith429Retry(
@@ -51,12 +60,22 @@ export async function fetchGroqWith429Retry(
   init: GroqRequestInit,
   doFetch: (url: string | URL, init: RequestInit) => Promise<Response> = fetch,
 ): Promise<Response> {
-  const res = await doFetch(url, resolveInit(init));
-  if (res.status !== 429) return res;
+  let lastResponse: Response | null = null;
 
-  const delaySeconds = await retryDelaySeconds(res);
-  if (delaySeconds == null) return res;
+  for (let attempt = 0; attempt < MAX_429_ATTEMPTS; attempt += 1) {
+    const res = await doFetch(url, resolveInit(init));
+    if (res.status !== 429) return res;
 
-  await sleep(delaySeconds * 1000);
-  return doFetch(url, resolveInit(init));
+    lastResponse = res;
+    const fromApi = await retryDelaySeconds(res);
+    const delayMs =
+      fromApi != null
+        ? Math.max(fromApi * 1000, exponentialBackoffMs(attempt))
+        : exponentialBackoffMs(attempt);
+
+    if (attempt === MAX_429_ATTEMPTS - 1) break;
+    await sleep(delayMs);
+  }
+
+  return lastResponse ?? await doFetch(url, resolveInit(init));
 }

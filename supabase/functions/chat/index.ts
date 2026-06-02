@@ -1,19 +1,27 @@
 import { handleOptions, jsonResponse, corsHeaders } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
-import { parseBudgetFromText } from '../_shared/currency.ts';
 import { CHAT_TRANSPORT_HINT_SHORT } from '../_shared/plan-prompt.ts';
 import { buildTravelContext } from '../_shared/travel-apis.ts';
 import { fetchGroqWith429Retry } from '../_shared/groq-fetch.ts';
 import { logGroqUsage } from '../_shared/groq-usage.ts';
 import { safeDb } from '../_shared/db.ts';
 import {
+  assessTripRequirements,
   buildChatMemoryContext,
   CHAT_AGENT_TOOLS,
   executeChatTool,
+  canPersistTripFromChat,
   finalizeTripOnUserConfirmation,
+  gatherTripContextFromHistory,
+  formatGatheredTripDetailsSection,
+  mergeGatheredTripContext,
+  maybeAutoPersistTrip,
   messageNeedsChatTools,
+  parseTripContextFromText,
+  tripSummaryToGatheredContext,
   type ChatHistoryMessage,
   type ChatToolEffect,
+  type GatheredTripContext,
 } from '../_shared/chat-tools.ts';
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
@@ -32,11 +40,15 @@ const SYSTEM_PROMPT = `You are a concise in-app AI travel agent for Indian trave
 
 Rules:
 - Saved trips: use [TRIP MEMORY] and tools only; never invent saved-trip facts.
-- Continue from [CHAT MEMORY] and recent messages; ask one short follow-up when details are missing.
+- Continue from [CHAT MEMORY], [GATHERED TRIP DETAILS], and recent messages in this thread only. Never re-ask for fields listed as Known.
+- New conversations: never reuse destination, dates, budget, or travelers from other chats or old saved trips unless the user explicitly references them.
+- Ask at most one short follow-up only for fields listed under Still needed.
+- Required before saving: destination, origin, start and end travel dates, travelers, and INR budget.
+- When all required fields are known, show a short confirmation summary first; call create_trip with status "saved" only after the user explicitly confirms that summary (or follow [AUTO ACTION] if the trip was already saved).
+- After create_trip or update_trip succeeds, confirm the trip is saved and the user can view it in the Trips tab.
 - DB changes only via tools; never claim a mutation unless a tool succeeded.
 - Trip deletion only via delete_trip; confirm removal only after the tool returns success.
 - When the user confirms a trip is correct or asks to save, call update_trip with status "saved" on the active trip before saying it is saved.
-- New full trips need destination, origin, dates/duration, travelers, INR budget (draft OK if requested).
 - On create_trip, generatePlan defaults to true — always build itinerary, budget, and packing unless the user explicitly wants a draft-only trip.
 - If [CLIENT TRIP CONTEXT] includes origin, use it and do not ask for origin city unless the user wants to change it.
 - [LIVE TRAVEL DATA]: weather, named hotels/places, real trains only when present; mark estimates as approximate; no invented train numbers if [AI TRAIN FALLBACK].
@@ -44,6 +56,16 @@ ${CHAT_TRANSPORT_HINT_SHORT}
 Reply in 2–5 short sentences unless the user asks for detail.`;
 
 const CHAT_SUMMARY_PREFIX = 'CHAT_SUMMARY:';
+
+function isWeakDestinationLabel(destination: string): boolean {
+  const normalized = destination.trim().toLowerCase();
+  return (
+    normalized.length < 3 ||
+    /^(this|that|there|here)(\s+trip)?$/.test(normalized) ||
+    normalized === 'this trip' ||
+    normalized === 'the trip'
+  );
+}
 
 function isLikelyToNeedLiveTravelData(params: {
   destination?: string;
@@ -146,43 +168,6 @@ function generateConversationTitle(message: string): string {
   return fallbackTitle(message);
 }
 
-function isWeakDestinationLabel(destination: string): boolean {
-  const normalized = destination.trim().toLowerCase();
-  return (
-    normalized.length < 3 ||
-    /^(this|that|there|here)(\s+trip)?$/.test(normalized) ||
-    normalized === 'this trip' ||
-    normalized === 'the trip'
-  );
-}
-
-function parseTripContextFromMessage(text: string): RequestBody['tripContext'] {
-  const ctx: RequestBody['tripContext'] = {};
-  const destMatch = text.match(
-    /(?:to|in|visit|trip to|going to)\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\s+with\s+|\.|,|$)/i,
-  );
-  if (destMatch) {
-    const destination = destMatch[1].trim();
-    if (!isWeakDestinationLabel(destination)) ctx.destination = destination;
-  }
-
-  const budgetInr = parseBudgetFromText(text);
-  if (budgetInr != null) ctx.budgetInr = budgetInr;
-
-  const travelersMatch = text.match(/(\d+)\s*(?:people|travelers|travellers|guests|pax|friends?)/i);
-  if (travelersMatch) ctx.travelers = Number(travelersMatch[1]);
-
-  const originMatch = text.match(
-    /(?:from|flying from|leaving)\s+([A-Za-z][A-Za-z\s]{2,30}?)(?:\s+to\s+|\s+in\s+|\.|,|$)/i,
-  );
-  if (originMatch) ctx.origin = originMatch[1].trim();
-
-  const isoDate = text.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
-  if (isoDate) ctx.startDate = isoDate[1];
-
-  return ctx;
-}
-
 function hasCurrentUserMessage(history: ChatHistoryMessage[], message: string): boolean {
   const latestUser = [...history].reverse().find((item) => item.role === 'user');
   return latestUser?.content.trim() === message.trim();
@@ -232,9 +217,17 @@ async function callGroq(
     body: JSON.stringify(body),
   });
 
+  if (res.status === 429) {
+    throw new Error('RATE_LIMIT_RETRY_EXHAUSTED');
+  }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data?.error?.message ?? 'Groq API request failed');
+    const errMsg = data?.error?.message ?? 'Groq API request failed';
+    if (/rate limit|429|tokens per minute/i.test(String(errMsg))) {
+      throw new Error('RATE_LIMIT_RETRY_EXHAUSTED');
+    }
+    throw new Error(errMsg);
   }
   logGroqUsage(usageLabel, data as Record<string, unknown>, model, usageMeta);
   return data;
@@ -260,6 +253,7 @@ async function runAssistantWithTools(input: {
   useTools: boolean;
   conversationId?: string;
   activeTripId?: string;
+  allowSavedTripCreate?: boolean;
 }): Promise<AssistantRunResult> {
   const messages = [...input.messages];
   const effects: ChatToolEffect[] = [];
@@ -327,6 +321,7 @@ async function runAssistantWithTools(input: {
           userId: input.userId,
           authHeader: input.authHeader,
           activeTripId: input.activeTripId,
+          allowSavedTripCreate: input.allowSavedTripCreate,
         });
       } catch (toolError) {
         const message = toolError instanceof Error ? toolError.message : 'Tool execution failed';
@@ -514,35 +509,41 @@ deno.Deno.serve(async (req) => {
       });
     }
 
+    const preMemoryHistory: ChatHistoryMessage[] = conversationId ? [] : history;
+    const parsedContext = parseTripContextFromText(message);
+    const initialGatheredTrip = mergeGatheredTripContext(
+      gatherTripContextFromHistory(preMemoryHistory),
+      parsedContext,
+      body.tripContext,
+    );
+
     const memory = await buildChatMemoryContext({
       supabase,
       userId: user.id,
       conversationId,
       requestedTripId: body.tripId,
       userMessage: message,
-      clientHistory: conversationId ? [] : history,
+      clientHistory: preMemoryHistory,
+      isNewConversation,
     });
 
-    const parsedContext = parseTripContextFromMessage(message);
-    const activeTripContext = memory.activeTrip
-      ? {
-        destination: memory.activeTrip.destination,
-        origin: memory.activeTrip.origin_city ?? undefined,
-        startDate: memory.activeTrip.start_date ?? undefined,
-        endDate: memory.activeTrip.end_date ?? undefined,
-        budgetInr: memory.activeTrip.budget_usd ? Number(memory.activeTrip.budget_usd) : undefined,
-        travelers: memory.activeTrip.travelers,
-      }
-      : {};
-    const tripContext = {
-      ...activeTripContext,
-      ...parsedContext,
-      ...body.tripContext,
-    };
+    const gatheredSources: Array<GatheredTripContext | undefined | null> = [
+      initialGatheredTrip,
+      gatherTripContextFromHistory(memory.authoritativeHistory),
+      parseTripContextFromText(message),
+    ];
+    if (body.tripId && memory.activeTrip) {
+      gatheredSources.push(tripSummaryToGatheredContext(memory.activeTrip));
+    }
+    const fullGatheredTrip = mergeGatheredTripContext(...gatheredSources);
+    const fullTripRequirements = assessTripRequirements(fullGatheredTrip);
+    const tripContext = fullGatheredTrip;
 
-    const useTools = messageNeedsChatTools(message, {
+    let useTools = messageNeedsChatTools(message, {
       activeTripId: memory.activeTripId,
       activeTripStatus: memory.activeTrip?.status,
+      gatheredTrip: fullGatheredTrip,
+      tripPlanningComplete: fullTripRequirements.complete,
     });
     const chatModel = MODEL_8B;
     const chatMaxTokens = useTools ? 640 : 480;
@@ -687,10 +688,29 @@ deno.Deno.serve(async (req) => {
 
     const clientTripContext = formatClientTripContext(tripContext);
 
+    const autoPersist = await safeDb('auto persist trip from chat', () =>
+      maybeAutoPersistTrip({
+        supabase,
+        userId: user.id,
+        authHeader,
+        message,
+        gathered: fullGatheredTrip,
+        activeTrip: memory.activeTrip,
+        activeTripId: memory.activeTripId,
+      }),
+    );
+    if (autoPersist?.disableTools) {
+      useTools = false;
+    }
+
+    const gatheredSection = autoPersist?.contextSection ??
+      formatGatheredTripDetailsSection(fullGatheredTrip, fullTripRequirements);
+
     const systemWithContext = [
       SYSTEM_PROMPT,
       '',
       memoryText,
+      `\n${gatheredSection}`,
       clientTripContext ? `\n[CLIENT TRIP CONTEXT]\n${clientTripContext}` : '',
       conversationSummary ? `\n[CONVERSATION SUMMARY]\n${conversationSummary.slice(0, 600)}` : '',
       liveData ? `\n[LIVE TRAVEL DATA]\n${liveData}` : '',
@@ -713,7 +733,17 @@ deno.Deno.serve(async (req) => {
       useTools,
       conversationId,
       activeTripId: memory.activeTripId,
+      allowSavedTripCreate: canPersistTripFromChat(message, fullGatheredTrip),
     });
+
+    if (autoPersist?.effects.length) {
+      assistantResult = {
+        ...assistantResult,
+        effects: [...autoPersist.effects, ...assistantResult.effects],
+        openTripId: autoPersist.openTripId ?? assistantResult.openTripId,
+        connectedTripId: autoPersist.connectedTripId ?? assistantResult.connectedTripId,
+      };
+    }
 
     const finalizeEffect = await safeDb('finalize trip on confirmation', () =>
       finalizeTripOnUserConfirmation({
@@ -765,6 +795,16 @@ deno.Deno.serve(async (req) => {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (msg === 'RATE_LIMIT_RETRY_EXHAUSTED' || /rate limit|429|tokens per minute/i.test(msg)) {
+      return jsonResponse(
+        {
+          error:
+            'The AI is briefly busy planning your trip. Please wait a moment and send your message again.',
+          retryable: true,
+        },
+        503,
+      );
+    }
     return jsonResponse({ error: msg }, 500);
   }
 });
