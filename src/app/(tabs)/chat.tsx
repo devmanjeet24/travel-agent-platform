@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
+  RefreshControl,
   Text,
   View,
 } from 'react-native'
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
 import { Paperclip, Sparkles, X } from 'lucide-react-native'
@@ -39,7 +39,11 @@ import { deriveChatTitle } from '@/utils/chat-title'
 import type { ChatAttachment, ChatHistoryItem, ChatMessage } from '@/services/chat'
 import { uploadChatAttachment } from '@/services/travel/travel-api'
 import { useAuth } from '@/providers/auth-provider'
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
+import { notificationKeys } from '@/hooks/notifications/use-notifications-query'
+import { tripKeys } from '@/services/trips/trip-keys'
+import { chatEffectsMutateTrips } from '@/utils/chat-trip-sync'
 
 const DEFAULT_HEADER_TITLE = 'AI Travel Agent'
 
@@ -68,8 +72,8 @@ export default function ChatScreen() {
   const router = useRouter()
   const theme = useThemedStyles()
   const { user } = useAuth()
+  const queryClient = useQueryClient()
   const insets = useSafeAreaInsets()
-  const tabBarHeight = useBottomTabBarHeight()
   const { horizontalPadding } = useResponsive()
   const tabInsets = useTabScreenInsets()
   const params = useLocalSearchParams<{ tripId?: string; conversationId?: string }>()
@@ -98,13 +102,12 @@ export default function ChatScreen() {
 
   const keyboardInset = useKeyboardBottomInset()
   const isKeyboardOpen = keyboardInset > 0
-  const composerBottomPad =
-    Platform.OS === 'android'
-      ? isKeyboardOpen
-        ? Math.max(keyboardInset, insets.bottom) + spacing.sm
-        : tabInsets.composerBottomPadding
-      : tabInsets.composerBottomPadding
-  const keyboardOffset = Platform.OS === 'ios' ? tabBarHeight + insets.top : 0
+  // Android resizes the window (softwareKeyboardLayoutMode: resize). iOS lifts the shell via keyboard inset.
+  // When the keyboard is open the tab bar hides — only keep a small safe-area gap.
+  const composerBottomPad = isKeyboardOpen
+    ? Math.max(insets.bottom, spacing.sm)
+    : tabInsets.composerBottomPadding
+  const keyboardLift = Platform.OS === 'ios' ? keyboardInset : 0
   const listPadX = horizontalPadding
 
   const scrollToEnd = useCallback(() => {
@@ -181,12 +184,25 @@ export default function ChatScreen() {
             )
             scrollToEnd()
           },
-          onDone: ({ reply, conversationId: newConvId, title, warning: w, openTripId }) => {
+          onDone: ({ reply, conversationId: newConvId, title, warning: w, openTripId, effects }) => {
             const resolvedConvId = newConvId ?? conversationId
             if (newConvId) setConversationId(newConvId)
             const resolvedTitle = title ?? conversationTitle
             if (title) setConversationTitle(title)
             if (w) setWarning(w)
+            if (chatEffectsMutateTrips(effects)) {
+              void queryClient.invalidateQueries({ queryKey: tripKeys.all })
+              void queryClient.invalidateQueries({ queryKey: notificationKeys.all })
+            }
+            const deletedActiveTrip = effects?.some(
+              (effect) =>
+                effect.type === 'delete_trip' &&
+                params.tripId &&
+                effect.tripId === params.tripId,
+            )
+            if (deletedActiveTrip) {
+              router.replace('/(tabs)/chat' as never)
+            }
             setMessages((prev) => {
               const next = prev.map((m) =>
                 m.id === assistantId ? { ...m, content: reply, streaming: false } : m,
@@ -208,7 +224,7 @@ export default function ChatScreen() {
               shouldSpeakRef.current = false
               void speakReplyRef.current(reply)
             }
-            if (openTripId) {
+            if (openTripId && !deletedActiveTrip) {
               router.push(`/trip/${openTripId}` as never)
             }
           },
@@ -229,8 +245,10 @@ export default function ChatScreen() {
       params.tripId,
       originCity,
       pendingAttachments,
+      queryClient,
       router,
       scrollToEnd,
+      conversationTitle,
     ],
   )
 
@@ -245,59 +263,72 @@ export default function ChatScreen() {
     speakReplyRef.current = voice.speakReply
   }, [voice.speakReply])
 
+  const reloadChatHistory = useCallback(async () => {
+    const cached = await loadChatSessionCache({
+      conversationId: params.conversationId,
+      tripId: params.tripId,
+    })
+    if (cached) {
+      setMessages(cached.messages)
+      setConversationId(cached.conversationId)
+      setConversationTitle(cached.title)
+    }
+
+    if (isOffline) return
+
+    const convId =
+      params.conversationId ??
+      cached?.conversationId ??
+      (await fetchLatestConversation(params.tripId))?.id
+    if (!convId) return
+
+    const [conv, rows] = await Promise.all([
+      fetchConversationById(convId),
+      fetchConversationMessages(convId),
+    ])
+    const nextMessages = rows
+      .filter((r) => r.role === 'user' || r.role === 'assistant')
+      .map((r) => ({
+        id: r.id,
+        role: r.role === 'assistant' ? ('assistant' as const) : ('user' as const),
+        content: r.content,
+        timestamp: formatTime(new Date(r.created_at)),
+        attachments: r.attachments,
+      }))
+    setMessages(nextMessages)
+    setConversationId(convId)
+    const title = conv?.title ?? DEFAULT_HEADER_TITLE
+    if (conv?.title) setConversationTitle(title)
+
+    await saveChatSessionCache({
+      conversationId: convId,
+      title,
+      messages: nextMessages,
+      tripId: params.tripId,
+      updatedAt: new Date().toISOString(),
+    })
+  }, [isOffline, params.conversationId, params.tripId])
+
+  const { refreshing, onRefresh } = usePullToRefresh(async () => {
+    try {
+      setError(null)
+      await reloadChatHistory()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not refresh chat')
+    }
+  })
+
   useEffect(() => {
-    void (async () => {
-      const cached = await loadChatSessionCache({
-        conversationId: params.conversationId,
-        tripId: params.tripId,
-      })
-      if (cached) {
-        setMessages(cached.messages)
-        setConversationId(cached.conversationId)
-        setConversationTitle(cached.title)
-      }
+    void reloadChatHistory().catch((e) => {
+      setError(e instanceof Error ? e.message : 'Could not load history')
+    })
+  }, [reloadChatHistory, user?.id])
 
-      if (isOffline) return
-
-      try {
-        const convId =
-          params.conversationId ??
-          cached?.conversationId ??
-          (await fetchLatestConversation(params.tripId))?.id
-        if (!convId) return
-
-        const [conv, rows] = await Promise.all([
-          fetchConversationById(convId),
-          fetchConversationMessages(convId),
-        ])
-        const nextMessages = rows
-          .filter((r) => r.role === 'user' || r.role === 'assistant')
-          .map((r) => ({
-            id: r.id,
-            role: r.role === 'assistant' ? ('assistant' as const) : ('user' as const),
-            content: r.content,
-            timestamp: formatTime(new Date(r.created_at)),
-            attachments: r.attachments,
-          }))
-        setMessages(nextMessages)
-        setConversationId(convId)
-        const title = conv?.title ?? DEFAULT_HEADER_TITLE
-        if (conv?.title) setConversationTitle(title)
-
-        await saveChatSessionCache({
-          conversationId: convId,
-          title,
-          messages: nextMessages,
-          tripId: params.tripId,
-          updatedAt: new Date().toISOString(),
-        })
-      } catch (e) {
-        if (!cached) {
-          setError(e instanceof Error ? e.message : 'Could not load history')
-        }
-      }
-    })()
-  }, [params.conversationId, params.tripId, user?.id, isOffline])
+  useEffect(() => {
+    if (keyboardInset > 0) {
+      scrollToEnd()
+    }
+  }, [keyboardInset, scrollToEnd])
 
   const handleNewChat = useCallback(async () => {
     await voice.interrupt()
@@ -347,12 +378,7 @@ export default function ChatScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={keyboardOffset}
-        enabled={Platform.OS === 'ios'}
-      >
+      <View style={{ flex: 1, paddingBottom: keyboardLift }}>
         <ChatHeader
           title={conversationTitle}
           subtitle={
@@ -448,15 +474,21 @@ export default function ChatScreen() {
             paddingTop: spacing.md,
             paddingBottom:
               spacing.lg +
-              (Platform.OS === 'android' && isKeyboardOpen
-                ? keyboardInset + 72
-                : tabInsets.composerBottomPadding * 0.35),
+              (isKeyboardOpen ? 88 : tabInsets.composerBottomPadding * 0.35),
             flexGrow: 1,
           }}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          automaticallyAdjustKeyboardInsets={false}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={brand.primaryDark}
+              colors={[brand.primaryDark]}
+            />
+          }
           onContentSizeChange={scrollToEnd}
           ListEmptyComponent={
             <View style={{ alignItems: 'center', paddingTop: 48, paddingHorizontal: spacing.xl }}>
@@ -578,7 +610,7 @@ export default function ChatScreen() {
           voicePhase={voice.phase}
           paddingBottom={composerBottomPad}
         />
-      </KeyboardAvoidingView>
+      </View>
     </View>
   )
 }

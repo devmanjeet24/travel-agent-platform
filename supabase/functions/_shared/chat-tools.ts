@@ -1,5 +1,9 @@
 import { parseBudgetFromText } from './currency.ts';
 import { safeDb } from './db.ts';
+import {
+  insertTripActivityNotifications,
+  insertTripDeletedNotification,
+} from './trip-notifications.ts';
 
 type SupabaseClient = {
   from: (table: string) => any;
@@ -38,7 +42,13 @@ export type ChatMemoryContext = {
 };
 
 export type ChatToolEffect = {
-  type: 'read' | 'create_trip' | 'update_trip' | 'regenerate_trip' | 'refresh_travel';
+  type:
+    | 'read'
+    | 'create_trip'
+    | 'update_trip'
+    | 'regenerate_trip'
+    | 'refresh_travel'
+    | 'delete_trip';
   tripId?: string;
   openTripId?: string;
   summary: string;
@@ -190,6 +200,27 @@ export const CHAT_AGENT_TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_trip',
+      description:
+        'Permanently delete a saved trip and all related itinerary, budget, and packing data. Use when the user asks to delete, remove, or cancel a trip.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tripId: {
+            type: 'string',
+            description: 'Exact trip id when known (e.g. active trip from context).',
+          },
+          query: {
+            type: 'string',
+            description: 'Destination/title text to identify the trip if tripId is unknown.',
+          },
+        },
+      },
+    },
+  },
 ] as const;
 
 function truncate(value: string, max = 900): string {
@@ -265,6 +296,76 @@ function scoreTrip(trip: TripSummary, query: string): number {
   return score;
 }
 
+export function isTripConfirmationMessage(message: string): boolean {
+  const m = message.toLowerCase().trim();
+  return (
+    /\b(save|saved|confirm|confirmed|approve|approved|mark\b.*\bsaved)\b/.test(m) ||
+    /\b(that'?s fine|all good|looks good|all things are correct|everything is correct|everything looks good)\b/.test(m) ||
+    (/\b(correct|yes|okay|ok|fine|proceed|go ahead)\b/.test(m) &&
+      /\b(trip|itinerary|plan|draft|budget)\b/.test(m))
+  );
+}
+
+export function messageNeedsChatTools(
+  message: string,
+  opts?: { activeTripId?: string; activeTripStatus?: string },
+): boolean {
+  const m = message.toLowerCase().trim();
+  if (m.length < 28 && /^(hi|hello|hey|thanks|thank you|ok|okay|sure|great|cool|good morning|good evening)\b/.test(m)) {
+    if (!opts?.activeTripId || !isTripConfirmationMessage(message)) return false;
+  }
+  if (opts?.activeTripId && isTripConfirmationMessage(message)) return true;
+  if (opts?.activeTripId && opts.activeTripStatus === 'draft' && /\b(fine|ok|okay|correct|good|yes|save)\b/.test(m)) {
+    return true;
+  }
+  return (
+    /\b(create|update|change|edit|regenerate|refresh|save|saved|list|show|open|delete|remove|cancel)\b/.test(m) ||
+    /\b(my trips?|trip count|how many trips)\b/.test(m) ||
+    /\b(plan my trip|create a trip|new trip|add trip|generate plan|make a trip)\b/.test(m) ||
+    (/\b(delete|remove|cancel)\b/.test(m) && /\b(trip|itinerary|this)\b/.test(m)) ||
+    (/\b(budget|itinerary|packing|hotel|flight|train)\b/.test(m) && /\b(trip|for this|my)\b/.test(m))
+  );
+}
+
+/** When the user confirms a draft trip without tool use, persist status saved + notify. */
+export async function finalizeTripOnUserConfirmation(input: {
+  supabase: SupabaseClient;
+  userId: string;
+  message: string;
+  activeTrip?: TripSummary;
+  effects: ChatToolEffect[];
+}): Promise<ChatToolEffect | null> {
+  const trip = input.activeTrip;
+  if (!trip) return null;
+  if (!isTripConfirmationMessage(input.message)) return null;
+  if (trip.status === 'saved' || trip.status === 'completed') return null;
+  const alreadyUpdated = input.effects.some(
+    (effect) => effect.type === 'update_trip' && effect.tripId === trip.id,
+  );
+  if (alreadyUpdated) return null;
+
+  const { error } = await input.supabase
+    .from('trips')
+    .update({ status: 'saved', updated_at: new Date().toISOString() })
+    .eq('id', trip.id)
+    .eq('user_id', input.userId);
+  if (error) throw error;
+
+  await insertTripActivityNotifications(input.supabase, {
+    userId: input.userId,
+    tripId: trip.id,
+    destination: trip.destination,
+    startDate: trip.start_date,
+    kinds: ['trip_saved'],
+  });
+
+  return {
+    type: 'update_trip',
+    tripId: trip.id,
+    summary: `Saved ${trip.destination} after user confirmation.`,
+  };
+}
+
 function messageTripQuery(message: string): string {
   const destinationMatch = message.match(
     /\b(?:my|the)?\s*([A-Za-z][A-Za-z\s,]{2,40}?)\s+(?:trip|budget|itinerary|hotel|flight|route|plan)\b/i,
@@ -292,7 +393,7 @@ async function fetchTripSummaries(
 async function resolveTrip(
   supabase: SupabaseClient,
   userId: string,
-  args: { tripId?: string; query?: string },
+  args: { tripId?: string; query?: string; activeTripId?: string },
 ): Promise<{ trip?: TripSummary; error?: string; candidates?: TripSummary[] }> {
   const trips = await fetchTripSummaries(supabase, userId);
   if (args.tripId) {
@@ -303,6 +404,10 @@ async function resolveTrip(
 
   const q = (args.query ?? '').trim();
   if (!q) {
+    if (args.activeTripId) {
+      const active = trips.find((trip) => trip.id === args.activeTripId);
+      if (active) return { trip: active };
+    }
     if (trips.length === 1) return { trip: trips[0] };
     return {
       error: 'I need to know which trip to edit.',
@@ -584,7 +689,7 @@ export async function buildChatMemoryContext(input: {
         : tripDetailsText(details),
     '',
     '[TOOLS]',
-    'Use tools for saved-trip facts, counts, create/update/regenerate/refresh. Never claim a DB change without tool success.',
+    'Use tools for saved-trip facts, counts, create/update/regenerate/refresh/delete. Never claim a DB change without tool success.',
   ];
 
   return {
@@ -715,8 +820,14 @@ export async function executeChatTool(input: {
   supabase: SupabaseClient;
   userId: string;
   authHeader: string;
+  activeTripId?: string;
 }): Promise<ChatToolExecutionResult> {
-  const { name, args, supabase, userId, authHeader } = input;
+  const { name, args, supabase, userId, authHeader, activeTripId } = input;
+  const tripLookup = {
+    tripId: typeof args.tripId === 'string' ? args.tripId : undefined,
+    query: typeof args.query === 'string' ? args.query : undefined,
+    activeTripId,
+  };
 
   if (name === 'list_saved_trips') {
     const trips = await fetchTripSummaries(supabase, userId);
@@ -744,10 +855,7 @@ export async function executeChatTool(input: {
   }
 
   if (name === 'get_trip_details') {
-    const resolved = await resolveTrip(supabase, userId, {
-      tripId: typeof args.tripId === 'string' ? args.tripId : undefined,
-      query: typeof args.query === 'string' ? args.query : undefined,
-    });
+    const resolved = await resolveTrip(supabase, userId, tripLookup);
     if (!resolved.trip) {
       return {
         toolResult: {
@@ -773,10 +881,7 @@ export async function executeChatTool(input: {
     const budgetFromQuery = query
       ? parseBudgetChangeTarget(query) ?? parseBudgetFromText(query)
       : null;
-    const resolved = await resolveTrip(supabase, userId, {
-      tripId: typeof args.tripId === 'string' ? args.tripId : undefined,
-      query,
-    });
+    const resolved = await resolveTrip(supabase, userId, { ...tripLookup, query });
     if (!resolved.trip) {
       return {
         toolResult: {
@@ -825,6 +930,19 @@ export async function executeChatTool(input: {
     if (budgetInr != null && args.rebalanceBudget !== false) {
       budgetNote = await rebalanceBudgetCategories(supabase, resolved.trip.id, Math.round(budgetInr));
     }
+
+    const notificationKinds: Array<
+      'trip_updated' | 'trip_saved' | 'budget_generated'
+    > = ['trip_updated'];
+    if (patch.status === 'saved') notificationKinds.push('trip_saved');
+    if (budgetInr != null) notificationKinds.push('budget_generated');
+    await insertTripActivityNotifications(supabase, {
+      userId,
+      tripId: resolved.trip.id,
+      destination: resolved.trip.destination,
+      startDate: resolved.trip.start_date,
+      kinds: notificationKinds,
+    });
 
     const details = await fetchTripDetails(supabase, userId, resolved.trip.id);
     return {
@@ -920,6 +1038,15 @@ export async function executeChatTool(input: {
     }
 
     const details = await fetchTripDetails(supabase, userId, tripId);
+    const planOk = generation?.ok === true;
+    await insertTripActivityNotifications(supabase, {
+      userId,
+      tripId,
+      destination,
+      startDate: sanitizeTripDate(args.startDate),
+      kinds: ['trip_created'],
+    });
+
     return {
       toolResult: {
         success: true,
@@ -939,10 +1066,7 @@ export async function executeChatTool(input: {
   }
 
   if (name === 'regenerate_trip_plan') {
-    const resolved = await resolveTrip(supabase, userId, {
-      tripId: typeof args.tripId === 'string' ? args.tripId : undefined,
-      query: typeof args.query === 'string' ? args.query : undefined,
-    });
+    const resolved = await resolveTrip(supabase, userId, tripLookup);
     if (!resolved.trip) {
       return {
         toolResult: {
@@ -973,10 +1097,7 @@ export async function executeChatTool(input: {
   }
 
   if (name === 'refresh_trip_travel_options') {
-    const resolved = await resolveTrip(supabase, userId, {
-      tripId: typeof args.tripId === 'string' ? args.tripId : undefined,
-      query: typeof args.query === 'string' ? args.query : undefined,
-    });
+    const resolved = await resolveTrip(supabase, userId, tripLookup);
     if (!resolved.trip) {
       return {
         toolResult: {
@@ -1024,6 +1145,56 @@ export async function executeChatTool(input: {
           refreshHotels ? 'hotels' : null,
           refreshFlights ? 'flights' : null,
         ].filter(Boolean).join(' and ')} for ${trip.destination}.`,
+      },
+    };
+  }
+
+  if (name === 'delete_trip') {
+    const resolved = await resolveTrip(supabase, userId, tripLookup);
+    if (!resolved.trip) {
+      return {
+        toolResult: {
+          success: false,
+          error: resolved.error,
+          candidates: resolved.candidates,
+        },
+      };
+    }
+
+    const trip = resolved.trip;
+    const destination = trip.destination.trim() || trip.title.trim() || 'your trip';
+
+    const { error } = await supabase
+      .from('trips')
+      .delete()
+      .eq('id', trip.id)
+      .eq('user_id', userId);
+    if (error) {
+      return {
+        toolResult: {
+          success: false,
+          error: error.message ?? 'Could not delete trip.',
+        },
+      };
+    }
+
+    await insertTripDeletedNotification(supabase, {
+      userId,
+      destination,
+    });
+    await updateProfileTripStats(supabase, userId);
+
+    return {
+      toolResult: {
+        success: true,
+        tripId: trip.id,
+        destination,
+        message: 'Trip deleted successfully.',
+      },
+      effect: {
+        type: 'delete_trip',
+        tripId: trip.id,
+        summary: `Deleted trip for ${destination}.`,
       },
     };
   }

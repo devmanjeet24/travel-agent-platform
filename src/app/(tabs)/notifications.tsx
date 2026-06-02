@@ -23,6 +23,7 @@ import {
   useNotificationsQuery,
 } from '@/hooks/notifications/use-notifications-query'
 import type { NotificationRow } from '@/types/database'
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 const iconMap: Record<NotificationRow['type'], LucideIcon> = {
@@ -43,6 +44,7 @@ export default function NotificationsScreen() {
     isLoading,
     refetch,
   } = useNotificationsQuery()
+  const { refreshing, onRefresh } = usePullToRefresh(refetch)
   const markRead = useMarkNotificationReadMutation()
   const dismiss = useDismissNotificationMutation()
 
@@ -53,7 +55,14 @@ export default function NotificationsScreen() {
   )
 
   return (
-    <ScreenWrapper scroll tabInset scrollFlexGrow={false} subtleBackground>
+    <ScreenWrapper
+      scroll
+      tabInset
+      scrollFlexGrow={false}
+      subtleBackground
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
       <PageHeader
         large
         title="Alerts"

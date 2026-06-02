@@ -3,12 +3,15 @@ import { requireUser } from '../_shared/auth.ts';
 import { parseBudgetFromText } from '../_shared/currency.ts';
 import { CHAT_TRANSPORT_HINT_SHORT } from '../_shared/plan-prompt.ts';
 import { buildTravelContext } from '../_shared/travel-apis.ts';
+import { fetchGroqWith429Retry } from '../_shared/groq-fetch.ts';
 import { logGroqUsage } from '../_shared/groq-usage.ts';
 import { safeDb } from '../_shared/db.ts';
 import {
   buildChatMemoryContext,
   CHAT_AGENT_TOOLS,
   executeChatTool,
+  finalizeTripOnUserConfirmation,
+  messageNeedsChatTools,
   type ChatHistoryMessage,
   type ChatToolEffect,
 } from '../_shared/chat-tools.ts';
@@ -31,6 +34,8 @@ Rules:
 - Saved trips: use [TRIP MEMORY] and tools only; never invent saved-trip facts.
 - Continue from [CHAT MEMORY] and recent messages; ask one short follow-up when details are missing.
 - DB changes only via tools; never claim a mutation unless a tool succeeded.
+- Trip deletion only via delete_trip; confirm removal only after the tool returns success.
+- When the user confirms a trip is correct or asks to save, call update_trip with status "saved" on the active trip before saying it is saved.
 - New full trips need destination, origin, dates/duration, travelers, INR budget (draft OK if requested).
 - On create_trip, generatePlan defaults to true — always build itinerary, budget, and packing unless the user explicitly wants a draft-only trip.
 - If [CLIENT TRIP CONTEXT] includes origin, use it and do not ask for origin city unless the user wants to change it.
@@ -39,19 +44,6 @@ ${CHAT_TRANSPORT_HINT_SHORT}
 Reply in 2–5 short sentences unless the user asks for detail.`;
 
 const CHAT_SUMMARY_PREFIX = 'CHAT_SUMMARY:';
-
-function messageNeedsChatTools(message: string): boolean {
-  const m = message.toLowerCase().trim();
-  if (m.length < 28 && /^(hi|hello|hey|thanks|thank you|ok|okay|sure|great|cool|good morning|good evening)\b/.test(m)) {
-    return false;
-  }
-  return (
-    /\b(create|update|change|edit|regenerate|refresh|save|saved|list|show|open|delete|remove)\b/.test(m) ||
-    /\b(my trips?|trip count|how many trips)\b/.test(m) ||
-    /\b(plan my trip|create a trip|new trip|add trip|generate plan|make a trip)\b/.test(m) ||
-    (/\b(budget|itinerary|packing|hotel|flight|train)\b/.test(m) && /\b(trip|for this|my)\b/.test(m))
-  );
-}
 
 function isLikelyToNeedLiveTravelData(params: {
   destination?: string;
@@ -231,7 +223,7 @@ async function callGroq(
     body.tool_choice = 'auto';
   }
 
-  const res = await fetch(GROQ_URL, {
+  const res = await fetchGroqWith429Retry(GROQ_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${groqKey}`,
@@ -267,6 +259,7 @@ async function runAssistantWithTools(input: {
   maxTokens: number;
   useTools: boolean;
   conversationId?: string;
+  activeTripId?: string;
 }): Promise<AssistantRunResult> {
   const messages = [...input.messages];
   const effects: ChatToolEffect[] = [];
@@ -333,6 +326,7 @@ async function runAssistantWithTools(input: {
           supabase: input.supabase,
           userId: input.userId,
           authHeader: input.authHeader,
+          activeTripId: input.activeTripId,
         });
       } catch (toolError) {
         const message = toolError instanceof Error ? toolError.message : 'Tool execution failed';
@@ -546,9 +540,12 @@ deno.Deno.serve(async (req) => {
       ...body.tripContext,
     };
 
+    const useTools = messageNeedsChatTools(message, {
+      activeTripId: memory.activeTripId,
+      activeTripStatus: memory.activeTrip?.status,
+    });
     const chatModel = MODEL_8B;
-    const chatMaxTokens = messageNeedsChatTools(message) ? 640 : 480;
-    const useTools = messageNeedsChatTools(message);
+    const chatMaxTokens = useTools ? 640 : 480;
 
     const hasLongHistory = memory.authoritativeHistory.length > MAX_HISTORY_TURNS;
     const historyForModel = hasLongHistory
@@ -701,7 +698,7 @@ deno.Deno.serve(async (req) => {
       .filter(Boolean)
       .join('\n');
 
-    const assistantResult = await runAssistantWithTools({
+    let assistantResult = await runAssistantWithTools({
       groqKey,
       messages: buildBaseMessages({
         system: systemWithContext,
@@ -715,7 +712,25 @@ deno.Deno.serve(async (req) => {
       maxTokens: chatMaxTokens,
       useTools,
       conversationId,
+      activeTripId: memory.activeTripId,
     });
+
+    const finalizeEffect = await safeDb('finalize trip on confirmation', () =>
+      finalizeTripOnUserConfirmation({
+        supabase,
+        userId: user.id,
+        message,
+        activeTrip: memory.activeTrip,
+        effects: assistantResult.effects,
+      }),
+    );
+    if (finalizeEffect) {
+      assistantResult = {
+        ...assistantResult,
+        effects: [...assistantResult.effects, finalizeEffect],
+        connectedTripId: finalizeEffect.tripId ?? assistantResult.connectedTripId,
+      };
+    }
 
     const connectedTripId = assistantResult.connectedTripId ?? memory.activeTripId;
 

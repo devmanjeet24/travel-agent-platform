@@ -39,12 +39,18 @@ export async function formatChatInvokeError(
   return msg;
 }
 
+import {
+  parseChatToolEffects,
+  type ChatToolEffect,
+} from '@/utils/chat-trip-sync';
+
 export type ParsedChatResponse = {
   reply: string | null;
   conversationId?: string;
   warning?: string;
   tripId?: string;
   openTripId?: string;
+  effects?: ChatToolEffect[];
 };
 
 export function parseChatReply(data: unknown): ParsedChatResponse {
@@ -69,5 +75,6 @@ export function parseChatReply(data: unknown): ParsedChatResponse {
     warning: obj.warning,
     tripId: obj.tripId,
     openTripId: obj.openTripId,
+    effects: parseChatToolEffects(data),
   };
 }

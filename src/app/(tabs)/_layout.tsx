@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RequireSession } from '@/components/auth/require-session'
 import { OfflineBanner } from '@/components/ui/OfflineBanner'
 import { brand, spacing } from '@/constants/design'
+import { useKeyboardBottomInset } from '@/hooks/use-keyboard-bottom-inset'
 import { useResponsive } from '@/hooks/use-responsive'
 import { TAB_BAR_CONTENT_HEIGHT } from '@/lib/layout-parity'
 import { radii, tabBarShadow } from '@/lib/ui-styles'
@@ -37,10 +38,18 @@ function TabIcon({
 
 /** Full-width tab bar fixed to bottom — custom row layout for reliable Android rendering. */
 function FixedTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  const keyboardInset = useKeyboardBottomInset()
   const { tabBar, tabBarBorder, isDark, colors } = useThemedStyles()
   const { isSmallPhone } = useResponsive()
   const { width: screenWidth } = useWindowDimensions()
   const insets = useSafeAreaInsets()
+  const focusedRoute = state.routes[state.index]
+  const { tabBarHideOnKeyboard = false } = descriptors[focusedRoute.key].options
+
+  if (tabBarHideOnKeyboard && keyboardInset > 0) {
+    return null
+  }
+
   const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 0)
   const inactiveColor = isDark ? '#94A3B8' : colors.icon
   const activeColor = brand.primary

@@ -57,6 +57,7 @@ export async function sendChatMessage(
     warning: parsed.warning,
     tripId: parsed.tripId,
     openTripId: parsed.openTripId,
+    effects: parsed.effects,
   };
 }
 

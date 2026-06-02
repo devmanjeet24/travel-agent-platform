@@ -72,6 +72,9 @@ export function ChatComposer({
   const placeholder = isSmallPhone ? 'Message agent…' : 'Message your travel agent…'
 
   const inputFontSize = scaleFont(isSmallPhone ? 15 : 16)
+  const inputLineHeight = Math.round(inputFontSize * (Platform.OS === 'android' ? 1.25 : 1.22))
+  const inputVerticalInset = Platform.OS === 'android' ? 8 : 6
+  const singleLineBoxHeight = inputLineHeight + inputVerticalInset * 2
 
   const inputStyle = useMemo(
     () => ({
@@ -79,14 +82,23 @@ export function ChatComposer({
       minWidth: 0,
       color: theme.colors.text,
       fontSize: inputFontSize,
-      lineHeight: Math.round(inputFontSize * 1.35),
-      maxHeight: allowMultiline ? 120 : Math.round(inputFontSize * 1.35) + 4,
-      paddingVertical: Platform.OS === 'android' ? 6 : 8,
+      lineHeight: inputLineHeight,
+      minHeight: singleLineBoxHeight,
+      maxHeight: allowMultiline ? 120 : singleLineBoxHeight,
+      paddingTop: inputVerticalInset,
+      paddingBottom: inputVerticalInset,
       paddingHorizontal: spacing.xs,
       textAlignVertical: 'center' as const,
       ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
     }),
-    [allowMultiline, inputFontSize, theme.colors.text],
+    [
+      allowMultiline,
+      inputFontSize,
+      inputLineHeight,
+      inputVerticalInset,
+      singleLineBoxHeight,
+      theme.colors.text,
+    ],
   )
 
   return (

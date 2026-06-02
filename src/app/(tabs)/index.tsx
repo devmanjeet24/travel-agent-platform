@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { FlatList, Image, Pressable, Text, View } from 'react-native'
+import { useCallback, useMemo, useState } from 'react'
+import { FlatList, Image, Pressable, RefreshControl, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Bell, Map, MessageSquare, Wand2 } from 'lucide-react-native'
@@ -28,6 +28,7 @@ import { useResponsive } from '@/hooks/use-responsive'
 import { useTabScreenInsets } from '@/hooks/use-tab-screen-insets'
 import { useJourneyStats } from '@/hooks/profile/use-journey-stats'
 import { useSyncProfileStats } from '@/hooks/profile/use-sync-profile-stats'
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh'
 import { useTripsQuery } from '@/hooks/trips/use-trips-query'
 import { useSyncTripDestinations } from '@/hooks/trips/use-sync-trip-destinations'
 import { formatTripDates, tripDaysUntil } from '@/services/trips/trip-api'
@@ -75,8 +76,13 @@ export default function HomeScreen() {
   const router = useRouter()
   const theme = useThemedStyles()
   const { displayName } = useAuth()
-  const { data: trips, isLoading } = useTripsQuery()
-  const { stats } = useJourneyStats()
+  const { data: trips, isLoading, refetch: refetchTrips } = useTripsQuery()
+  const { stats, refetch: refetchStats } = useJourneyStats()
+  const refreshHome = useCallback(
+    () => Promise.all([refetchTrips(), refetchStats()]),
+    [refetchTrips, refetchStats],
+  )
+  const { refreshing, onRefresh } = usePullToRefresh(refreshHome)
   const { scrollBottomPadding } = useTabScreenInsets()
   useSyncProfileStats()
   useSyncTripDestinations(trips)
@@ -428,6 +434,14 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}
         keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={brand.primaryDark}
+            colors={[brand.primaryDark]}
+          />
+        }
       />
     </SafeAreaView>
   )

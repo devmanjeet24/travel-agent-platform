@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { View } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { Map, Plus } from 'lucide-react-native'
 
 import { ItineraryCard } from '@/components/ui/ItineraryCard'
@@ -11,6 +11,7 @@ import ScreenWrapper from '@/components/ui/ScreenWrapper'
 import { CardSkeleton } from '@/components/ui/LoadingSkeleton'
 import { brand, spacing } from '@/constants/design'
 import { useTripsQuery } from '@/hooks/trips/use-trips-query'
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh'
 import { useConfirmDeleteTrip } from '@/hooks/trips/use-confirm-delete-trip'
 import { tripCardLabels, tripImageUri } from '@/utils/trip-display'
 import { formatTripDates } from '@/services/trips/trip-api'
@@ -37,7 +38,14 @@ function tripCardStatus(status: TripRow['status']): 'upcoming' | 'saved' | 'comp
 
 export default function TripsScreen() {
   const router = useRouter()
-  const { data: trips, isLoading } = useTripsQuery()
+  const { data: trips, isLoading, refetch } = useTripsQuery()
+  const { refreshing, onRefresh } = usePullToRefresh(refetch)
+
+  useFocusEffect(
+    useCallback(() => {
+      void refetch()
+    }, [refetch]),
+  )
   const { confirmDelete } = useConfirmDeleteTrip()
   const [filter, setFilter] = useState<TripFilter>('all')
 
@@ -47,7 +55,14 @@ export default function TripsScreen() {
   const hasTrips = (trips?.length ?? 0) > 0
 
   return (
-    <ScreenWrapper scroll tabInset scrollFlexGrow={false} subtleBackground>
+    <ScreenWrapper
+      scroll
+      tabInset
+      scrollFlexGrow={false}
+      subtleBackground
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
       <PageHeader
         large
         title="Itinerary"

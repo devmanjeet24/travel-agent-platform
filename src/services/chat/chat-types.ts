@@ -1,3 +1,5 @@
+import type { ChatToolEffect } from '@/utils/chat-trip-sync';
+
 export type ChatRole = 'user' | 'assistant';
 
 export type ChatAttachment = {
@@ -25,6 +27,7 @@ export type ChatResult = {
   warning?: string;
   tripId?: string;
   openTripId?: string;
+  effects?: ChatToolEffect[];
 };
 
 export type SendChatVariables = {

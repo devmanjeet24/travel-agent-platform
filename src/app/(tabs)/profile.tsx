@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { LogOut, Settings, UserPen } from 'lucide-react-native'
@@ -15,7 +16,9 @@ import { useResponsive } from '@/hooks/use-responsive'
 import { cardShadow, radii } from '@/lib/ui-styles'
 import { useJourneyStats } from '@/hooks/profile/use-journey-stats'
 import { useSyncProfileStats } from '@/hooks/profile/use-sync-profile-stats'
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh'
 import { useProfileQuery } from '@/hooks/profile/use-profile-query'
+import { useTripsQuery } from '@/hooks/trips/use-trips-query'
 import { useSignOutMutation } from '@/hooks/auth/use-sign-out-mutation'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { useAuth } from '@/providers/auth-provider'
@@ -24,7 +27,13 @@ export default function ProfileScreen() {
   const router = useRouter()
   const theme = useThemedStyles()
   const { user, displayName } = useAuth()
-  const { data: profile, isLoading } = useProfileQuery()
+  const { data: profile, isLoading, refetch: refetchProfile } = useProfileQuery()
+  const { refetch: refetchTrips } = useTripsQuery()
+  const refreshProfile = useCallback(
+    () => Promise.all([refetchProfile(), refetchTrips()]),
+    [refetchProfile, refetchTrips],
+  )
+  const { refreshing, onRefresh } = usePullToRefresh(refreshProfile)
   const { stats, isLoading: statsLoading } = useJourneyStats()
   useSyncProfileStats()
   const signOutMutation = useSignOutMutation()
@@ -42,7 +51,14 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScreenWrapper scroll tabInset scrollFlexGrow={false} subtleBackground>
+    <ScreenWrapper
+      scroll
+      tabInset
+      scrollFlexGrow={false}
+      subtleBackground
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
       {/* Profile hero */}
       <View
         style={[

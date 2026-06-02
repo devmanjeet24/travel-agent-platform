@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
+import { notificationKeys } from '@/hooks/notifications/use-notifications-query';
 import { profileKeys } from '@/hooks/profile/use-profile-query';
 import { journeyStatsKeys } from '@/hooks/profile/use-journey-stats';
 import { planTrip } from '@/services/travel/travel-api';
@@ -18,6 +19,7 @@ export function usePlanTripMutation() {
       void queryClient.invalidateQueries({ queryKey: tripKeys.packing(tripId) });
       void queryClient.invalidateQueries({ queryKey: tripKeys.hotels(tripId) });
       void queryClient.invalidateQueries({ queryKey: tripKeys.flights(tripId) });
+      void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
       void queryClient.invalidateQueries({ queryKey: journeyStatsKeys.itineraryTripIds });
       if (user?.id) {
         void queryClient.invalidateQueries({ queryKey: profileKeys.detail(user.id) });

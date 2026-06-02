@@ -2,6 +2,10 @@ import { env } from '@/lib/env';
 import { getSupabaseOrNull } from '@/lib/supabase';
 import { sendChatMessage } from '@/services/chat/chat-mutation-fns';
 import type { SendChatVariables } from '@/services/chat/chat-types';
+import {
+  parseChatToolEffects,
+  type ChatToolEffect,
+} from '@/utils/chat-trip-sync';
 
 export async function getEdgeAuthHeaders(
   contentType = 'application/json',
@@ -35,6 +39,7 @@ export type StreamChatCallbacks = {
     warning?: string;
     tripId?: string;
     openTripId?: string;
+    effects?: ChatToolEffect[];
   }) => void;
   onError: (message: string) => void;
   onWarning?: (message: string) => void;
@@ -63,6 +68,7 @@ function parseSseLines(
         warning?: string;
         tripId?: string;
         openTripId?: string;
+        effects?: ChatToolEffect[];
       };
       if (data.error) {
         callbacks.onError(data.error);
@@ -78,6 +84,7 @@ function parseSseLines(
           warning: data.warning,
           tripId: data.tripId,
           openTripId: data.openTripId,
+          effects: parseChatToolEffects(data),
         });
       }
     } catch {
@@ -195,6 +202,7 @@ export async function sendChatWithStream(
     warning: result.warning,
     tripId: result.tripId,
     openTripId: result.openTripId,
+    effects: result.effects,
   });
 }
 
