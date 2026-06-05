@@ -24,6 +24,9 @@ export async function formatChatInvokeError(
   }
 
   const msg = error.message;
+  if (/tool call validation failed/i.test(msg)) {
+    return 'The AI is briefly busy. Please wait a moment and send your message again.';
+  }
   if (msg.includes('Failed to send a request to the Edge Function')) {
     return (
       'Chat Edge Function is not deployed (or unreachable). ' +

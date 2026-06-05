@@ -24,6 +24,7 @@ import {
   flightDurationLabel,
   flightNote,
   flightPriceLabel,
+  isDuffelFlightRaw,
   parseFlightRaw,
 } from '@/utils/flight-display'
 import {
@@ -189,7 +190,10 @@ export default function FlightsScreen() {
                       {note ?? 'Flight availability and prices can change before booking.'}
                     </Text>
                     <Text className="text-yellow-600 font-bold text-xl mt-1">
-                      {flightPriceLabel(f.raw, f.price_usd)}
+                      {flightPriceLabel(
+                        f.raw,
+                        isDuffelFlightRaw(f.raw) ? f.price_usd : null,
+                      )}
                     </Text>
                   </Card>
                 )

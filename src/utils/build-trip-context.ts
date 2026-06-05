@@ -15,10 +15,14 @@ export function buildTripContextForChat(params: {
       merged = { ...merged, ...parseTripContextFromMessage(item.content) }
     }
   }
+  const fromMessage = parseTripContextFromMessage(params.message)
+  const deviceOrigin = params.originCity.trim()
   merged = {
     ...merged,
-    ...parseTripContextFromMessage(params.message),
-    ...(params.originCity.trim() ? { origin: params.originCity.trim() } : {}),
+    ...fromMessage,
+  }
+  if (!merged.origin?.trim() && deviceOrigin) {
+    merged.origin = deviceOrigin
   }
   return Object.keys(merged).length ? merged : undefined
 }

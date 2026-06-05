@@ -108,6 +108,7 @@ const GEOAPIFY_TIMEOUT_MS = 8_000;
 
 const NOMINATIM_HEADERS = {
   'User-Agent': 'TravelAgentPlatform/1.0 (supabase-edge; educational)',
+  'Accept-Language': 'en',
 };
 
 const OVERPASS_HEADERS = {
@@ -404,6 +405,7 @@ type NominatimHit = {
   type?: string;
   class?: string;
   importance?: number;
+  namedetails?: Record<string, string>;
   address?: {
     country?: string;
     country_code?: string;
@@ -415,6 +417,42 @@ type NominatimHit = {
   extratags?: Record<string, string>;
 };
 
+function isMostlyLatinText(value: string): boolean {
+  return /^[\p{Script=Latin}\p{N}\s.,'()-]+$/u.test(value.trim());
+}
+
+function nominatimEnglishPlaceName(hit: NominatimHit): string | null {
+  const namedetails = hit.namedetails ?? {};
+  for (const key of ['name:en', 'name:en-US', 'name:en-GB', 'name:international']) {
+    const value = namedetails[key]?.trim();
+    if (value) return value;
+  }
+
+  const fromAddress =
+    hit.address?.city?.trim() ??
+    hit.address?.town?.trim() ??
+    hit.address?.village?.trim() ??
+    null;
+  if (fromAddress && isMostlyLatinText(fromAddress)) return fromAddress;
+
+  const firstSegment = hit.display_name.split(',')[0]?.trim() ?? '';
+  if (firstSegment && isMostlyLatinText(firstSegment)) return firstSegment;
+
+  return fromAddress ?? (firstSegment || null);
+}
+
+function nominatimEnglishRegionName(hit: NominatimHit, field: 'state' | 'country'): string {
+  const value = hit.address?.[field]?.trim() ?? '';
+  if (value && isMostlyLatinText(value)) return value;
+  const segmentIndex = field === 'country' ? -1 : 1;
+  const segments = hit.display_name.split(',').map((part) => part.trim()).filter(Boolean);
+  const fallback =
+    segmentIndex === -1
+      ? segments[segments.length - 1] ?? ''
+      : segments[segmentIndex] ?? '';
+  return fallback && isMostlyLatinText(fallback) ? fallback : value;
+}
+
 async function nominatimSearch(
   q: string,
   opts?: { featureType?: string; limit?: number },
@@ -425,6 +463,8 @@ async function nominatimSearch(
   url.searchParams.set('limit', String(opts?.limit ?? 5));
   url.searchParams.set('addressdetails', '1');
   url.searchParams.set('extratags', '1');
+  url.searchParams.set('namedetails', '1');
+  url.searchParams.set('accept-language', 'en');
   if (opts?.featureType) {
     url.searchParams.set('featuretype', opts.featureType);
   }
@@ -489,6 +529,7 @@ async function destinationImageFromHit(
 
 function hitToGeo(hit: NominatimHit, fallbackQuery: string): GeoResult {
   const cityName =
+    nominatimEnglishPlaceName(hit) ??
     hit.address?.city ??
     hit.address?.town ??
     hit.address?.village;
@@ -497,9 +538,11 @@ function hitToGeo(hit: NominatimHit, fallbackQuery: string): GeoResult {
     hit.address?.state ??
     fallbackQuery.split(',')[0]?.trim() ??
     fallbackQuery;
+  const country =
+    (nominatimEnglishRegionName(hit, 'country') || hit.address?.country) ?? '';
   return {
     name,
-    country: hit.address?.country ?? '',
+    country,
     countryCode: hit.address?.country_code?.toUpperCase(),
     lat: Number(hit.lat),
     lon: Number(hit.lon),
@@ -544,15 +587,11 @@ function scoreCitySuggestionHit(hit: NominatimHit): number {
 }
 
 function nominatimHitToCitySuggestion(hit: NominatimHit): CitySuggestion | null {
-  const place =
-    hit.address?.city ??
-    hit.address?.town ??
-    hit.address?.village ??
-    hit.display_name.split(',')[0]?.trim();
+  const place = nominatimEnglishPlaceName(hit);
   if (!place) return null;
 
-  const state = hit.address?.state?.trim() ?? '';
-  const country = hit.address?.country?.trim() ?? '';
+  const state = nominatimEnglishRegionName(hit, 'state');
+  const country = nominatimEnglishRegionName(hit, 'country');
   const value = country ? `${place}, ${country}` : place;
   const subtitleParts = [state, country].filter(Boolean);
   const subtitle =
@@ -672,6 +711,8 @@ export async function geocodeNearDestination(
   url.searchParams.set('format', 'json');
   url.searchParams.set('limit', '5');
   url.searchParams.set('addressdetails', '1');
+  url.searchParams.set('namedetails', '1');
+  url.searchParams.set('accept-language', 'en');
   url.searchParams.set(
     'viewbox',
     `${near.lon - lonDelta},${near.lat + latDelta},${near.lon + lonDelta},${near.lat - latDelta}`,
@@ -2423,28 +2464,49 @@ export async function buildTravelContext(input: {
 
         if (includeFlights) {
           if (includeFlightOffers && input.startDate) {
-            const flights = await searchFlightsEstimate({
-              originGeo,
-              destGeo: geo,
-              departDate: input.startDate,
-              budgetInr: input.budgetInr,
-            });
-            if (flights.offers.length) {
+            const duffelToken = Deno.env.get('DUFFEL_ACCESS_TOKEN') ??
+              Deno.env.get('DUFFEL_API_KEY');
+            if (duffelToken?.trim()) {
+              const { searchFlightsDuffel } = await import('./duffel-api.ts');
+              const flights = await searchFlightsDuffel({
+                originGeo,
+                destGeo: geo,
+                departDate: input.startDate,
+                travelers: input.travelers,
+                accessToken: duffelToken,
+              });
+              if (flights.offers.length) {
+                parts.push(
+                  'Flights (live Duffel offers — prices at search time, not guaranteed until booking): ' +
+                    flights.offers
+                      .map((f) => {
+                        const amount = f.raw.priceAmount;
+                        const currency = f.raw.priceCurrency;
+                        const price =
+                          typeof amount === 'number' && currency
+                            ? `${currency} ${amount}`
+                            : f.priceUsd != null
+                              ? formatInr(f.priceUsd)
+                              : '?';
+                        return `${f.airline} ${f.route} ${f.departTime}-${f.arriveTime} ${price} (${f.stops})`;
+                      })
+                      .join('; '),
+                );
+              } else if (flights.error) {
+                parts.push(`Flights note (Duffel): ${flights.error}`);
+              } else {
+                parts.push(
+                  'Flights: No live Duffel offers returned for this route/date. Do not invent airline names, flight numbers, or fares.',
+                );
+              }
+            } else {
               parts.push(
-                'Flights (estimated fares in INR, not live bookings): ' +
-                  flights.offers
-                    .map(
-                      (f) =>
-                        `${f.airline} ${f.route} ${f.departTime}-${f.arriveTime} ~${f.priceUsd != null ? formatInr(f.priceUsd) : '?'} (${f.stops})`,
-                    )
-                    .join('; '),
+                'Flights: Live flight fares are not configured (Duffel API key missing). Do not quote specific airline fares, flight numbers, or booking prices — only generic guidance that flights may apply on this route.',
               );
-            } else if (flights.error) {
-              parts.push(`Flights note: ${flights.error}`);
             }
           } else {
             parts.push(
-              'Flights: Route analysis says flights may be appropriate; use realistic INR estimates and keep details concise. Exact options require a start date.',
+              'Flights: Route analysis says flights may be appropriate. Do not invent specific fares or flight numbers; exact live options require a start date and Duffel search.',
             );
           }
         } else {

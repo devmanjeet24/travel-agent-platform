@@ -59,6 +59,16 @@ export default function ItineraryScreen() {
           ) : null}
           {d.activities.map((a) => {
             const transport = parseTransport(a.transport)
+            const storedCost =
+              a.cost_usd != null && Number(a.cost_usd) > 0 ? Number(a.cost_usd) : null
+            const displayCost =
+              storedCost ??
+              resolveActivityCostInr({
+                cost: a.cost_usd,
+                name: a.name,
+                transport: a.transport,
+                travelers: trip?.travelers ?? 1,
+              })
             return (
               <Card key={a.id} className="mt-3">
                 <View className="flex-row items-center gap-2">
@@ -71,15 +81,8 @@ export default function ItineraryScreen() {
                   {a.name}
                 </Text>
                 <Text className={`${theme.textMuted} text-sm mt-2`}>
-                  Est.{' '}
-                  {formatInr(
-                    resolveActivityCostInr({
-                      cost: a.cost_usd,
-                      name: a.name,
-                      transport: a.transport,
-                      travelers: trip?.travelers ?? 1,
-                    }),
-                  )}
+                  {storedCost != null ? '' : 'Est. '}
+                  {formatInr(displayCost)}
                 </Text>
                 {a.transport?.trim() ? (
                   <TransportBadge

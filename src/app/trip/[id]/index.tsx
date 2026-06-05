@@ -31,8 +31,7 @@ import {
 } from '@/hooks/trips/use-trip-query'
 import { formatInr } from '@/utils/currency'
 import {
-  budgetRowsToChartCategories,
-  deriveBudgetCategoriesFromTripData,
+  resolveBudgetChartCategories,
 } from '@/utils/derive-trip-budget'
 import { usePlanTripMutation } from '@/hooks/trips/use-plan-trip-mutation'
 import { useTripPlan } from '@/providers/trip-plan-provider'
@@ -188,12 +187,15 @@ export default function TripOverviewScreen() {
         : 'Itinerary pending'
       : null
 
-  const budgetChart =
-    budget?.length && trip
-      ? budgetRowsToChartCategories(budget)
-      : trip
-        ? deriveBudgetCategoriesFromTripData({ trip, itinerary, hotels, flights })
-        : []
+  const budgetChart = trip
+    ? resolveBudgetChartCategories({
+        rows: budget,
+        trip,
+        itinerary,
+        hotels,
+        flights,
+      })
+    : []
   const budgetTotal = budgetChart.reduce((s, c) => s + c.amount, 0)
   const budgetHint =
     budgetTotal > 0

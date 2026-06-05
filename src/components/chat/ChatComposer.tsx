@@ -32,6 +32,8 @@ type Props = {
   isSending: boolean
   voicePhase: VoiceAssistantPhase
   paddingBottom: number
+  /** When wrapped by a parent footer shell (e.g. chat tab), skip outer chrome. */
+  embedded?: boolean
 }
 
 function voiceHint(phase: VoiceAssistantPhase): string | null {
@@ -58,6 +60,7 @@ export function ChatComposer({
   isSending,
   voicePhase,
   paddingBottom,
+  embedded = false,
 }: Props) {
   const theme = useThemedStyles()
   const { scaleFont, isSmallPhone, horizontalPadding } = useResponsive()
@@ -105,12 +108,13 @@ export function ChatComposer({
     <View
       style={[
         styles.shell,
+        embedded ? styles.shellEmbedded : null,
         {
           paddingBottom,
           paddingHorizontal: horizontalPadding,
-          backgroundColor: theme.colors.card,
+          backgroundColor: embedded ? 'transparent' : theme.colors.card,
           borderTopColor: theme.colors.border,
-          ...(theme.isDark
+          ...(embedded || theme.isDark
             ? {}
             : {
                 shadowColor: '#0F172A',
@@ -236,6 +240,14 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radii.xl,
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: spacing.sm + 2,
+    overflow: 'visible',
+  },
+  shellEmbedded: {
+    borderTopWidth: 0,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs,
   },
   hintRow: {
     flexDirection: 'row',
@@ -250,9 +262,10 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingLeft: spacing.xs,
     paddingRight: spacing.xs,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.xs + 2,
     borderRadius: radii.xl,
     borderWidth: 1,
+    overflow: 'visible',
   },
   sideIconBtn: {
     width: ICON_SIZE,

@@ -22,16 +22,17 @@ export function useDeviceOriginCity() {
     void saveStoredOriginCity(next)
   }, [])
 
-  const runDetection = useCallback(async () => {
+  const runDetection = useCallback(async (): Promise<string> => {
     setStatus('loading')
     const result = await detectDeviceOriginCity()
     if (result.ok) {
       setOriginCityState(result.city)
       setStatus('detected')
       await saveStoredOriginCity(result.city)
-      return
+      return result.city
     }
     setStatus(result.reason)
+    return ''
   }, [])
 
   useEffect(() => {
@@ -51,12 +52,28 @@ export function useDeviceOriginCity() {
 
   const needsManualEntry = !originCity.trim() && status !== 'loading'
 
+  /** Resolve origin for chat/trip save: state → stored → live GPS (no manual typing required). */
+  const ensureOriginCity = useCallback(async (): Promise<string> => {
+    const current = originCity.trim()
+    if (current) return current
+
+    const stored = await loadStoredOriginCity()
+    if (stored?.trim()) {
+      setOriginCityState(stored.trim())
+      setStatus('manual')
+      return stored.trim()
+    }
+
+    return await runDetection()
+  }, [originCity, runDetection])
+
   return {
     originCity,
     setOriginCity,
     status,
     needsManualEntry,
     retryDetection: runDetection,
+    ensureOriginCity,
     isDetecting: status === 'loading',
   }
 }

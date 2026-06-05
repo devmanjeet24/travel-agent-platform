@@ -45,6 +45,7 @@ function FixedTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets()
   const focusedRoute = state.routes[state.index]
   const { tabBarHideOnKeyboard = false } = descriptors[focusedRoute.key].options
+  const isChatTab = focusedRoute.name === 'chat'
 
   if (tabBarHideOnKeyboard && keyboardInset > 0) {
     return null
@@ -60,12 +61,17 @@ function FixedTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     <View
       style={[
         styles.fixedShell,
-        tabBarShadow(isDark),
+        isChatTab ? styles.fixedShellChatConnected : null,
+        isChatTab ? null : tabBarShadow(isDark),
         {
           width: screenWidth,
           backgroundColor: tabBar,
           borderColor: tabBarBorder,
+          borderTopWidth: isChatTab ? 0 : 1,
+          borderTopLeftRadius: isChatTab ? 0 : radii.xl,
+          borderTopRightRadius: isChatTab ? 0 : radii.xl,
           paddingBottom: bottomInset,
+          ...(isChatTab && Platform.OS === 'android' ? { elevation: 0 } : {}),
         },
       ]}
     >
@@ -217,6 +223,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     overflow: 'hidden',
     elevation: 0,
+  },
+  fixedShellChatConnected: {
+    overflow: 'visible',
   },
   tabRow: {
     flexDirection: 'row',

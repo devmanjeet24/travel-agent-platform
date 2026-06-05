@@ -16,6 +16,8 @@ type Props = {
   onRetryDetection: () => void
   onDismiss: () => void
   horizontalPadding: number
+  /** Override bar background when nested in a shared footer surface. */
+  backgroundColor?: string
 }
 
 function statusHint(
@@ -43,6 +45,7 @@ export function OriginCityBar({
   onRetryDetection,
   onDismiss,
   horizontalPadding,
+  backgroundColor,
 }: Props) {
   const theme = useThemedStyles()
   const hint = statusHint(status, needsManualEntry, originCity.trim().length > 0)
@@ -53,9 +56,9 @@ export function OriginCityBar({
         paddingHorizontal: horizontalPadding,
         paddingTop: 8,
         paddingBottom: 4,
-        borderTopWidth: 1,
+        borderTopWidth: backgroundColor ? 0 : 1,
         borderTopColor: theme.colors.border,
-        backgroundColor: theme.colors.background,
+        backgroundColor: backgroundColor ?? theme.colors.background,
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>

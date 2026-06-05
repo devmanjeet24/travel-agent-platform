@@ -18,12 +18,19 @@ export function isStaleHotelRow(row: TripHotelRow): boolean {
   return false
 }
 
+export function isDuffelFlightRow(row: TripFlightRow): boolean {
+  const source = row.raw?.source
+  return source === 'duffel' && Boolean(row.raw?.duffelOfferId ?? row.raw?.duffel_offer_id)
+}
+
 export function isStaleFlightRow(row: TripFlightRow): boolean {
+  if (isDuffelFlightRow(row)) return false
   const airline = (row.airline ?? '').trim()
   if (/^estimated carrier$/i.test(airline)) return true
   if (/airport/i.test(airline) && airline.includes('→')) return true
   const source = row.raw?.source
   if (source === 'estimate' || source === 'osm') return true
+  if (!source || source !== 'duffel') return true
   return false
 }
 

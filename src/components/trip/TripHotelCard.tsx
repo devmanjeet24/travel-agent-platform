@@ -4,10 +4,10 @@ import { MapPin, Star } from 'lucide-react-native'
 
 import { Card } from '@/components/ui/Card'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
-import { formatInrPerNight } from '@/utils/currency'
 import {
   hotelAddress,
   hotelImageCandidates,
+  hotelNightlyPriceText,
   hotelPriceLabel,
   hotelSourceLabel,
   hotelWebsite,
@@ -76,9 +76,7 @@ export function TripHotelCard({ hotel, compact }: Props) {
           </Text>
         ) : null}
         <Text className="text-yellow-600 font-bold mt-2">
-          {hotel.price_per_night_usd != null
-            ? formatInrPerNight(hotel.price_per_night_usd)
-            : 'Price on request'}
+          {hotelNightlyPriceText(hotel.price_per_night_usd, hotel.raw)}
         </Text>
         {website && !compact ? (
           <Pressable onPress={() => void Linking.openURL(website)} className="mt-3">

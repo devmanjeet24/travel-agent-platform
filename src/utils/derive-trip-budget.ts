@@ -7,8 +7,29 @@ import type {
   TripRow,
 } from '@/types/database'
 import { resolveActivityCostInr } from '@/utils/activity-cost'
+import { isDuffelFlightRow } from '@/utils/travel-data-validity'
+import { parseHotelRaw } from '@/utils/hotel-display'
 
 export type BudgetChartCategory = { label: string; amount: number; color: string }
+
+const STANDARD_BUDGET_LABELS = [
+  'Flights',
+  'Hotels',
+  'Food',
+  'Activities',
+  'Transport',
+  'Misc',
+] as const
+
+/** Default INR split when only trip.budget_usd is known (matches plan-trip / chat defaults). */
+const BUDGET_SPLIT_PCT: Record<string, number> = {
+  Flights: 0.35,
+  Hotels: 0.3,
+  Food: 0.15,
+  Activities: 0.1,
+  Transport: 0.07,
+  Misc: 0.03,
+}
 
 const DEFAULT_COLORS: Record<string, string> = {
   Flights: '#EAB308',
@@ -70,11 +91,14 @@ export function deriveBudgetCategoriesFromTripData(params: {
   }
 
   for (const hotel of params.hotels ?? []) {
+    const raw = parseHotelRaw(hotel.raw)
+    if (raw?.priceSource === 'estimate') continue
     const perNight = Number(hotel.price_per_night_usd ?? 0)
     if (perNight > 0) add('Hotels', perNight * nights)
   }
 
   for (const flight of params.flights ?? []) {
+    if (!isDuffelFlightRow(flight)) continue
     const price = Number(flight.price_usd ?? 0)
     if (price > 0) add('Flights', price * travelers)
   }
@@ -83,29 +107,12 @@ export function deriveBudgetCategoriesFromTripData(params: {
   const summed = [...totals.values()].reduce((s, n) => s + n, 0)
 
   if (summed === 0 && tripBudget > 0) {
-    const splits: Array<[string, number]> = [
-      ['Flights', 0.35],
-      ['Hotels', 0.3],
-      ['Food', 0.15],
-      ['Activities', 0.12],
-      ['Transport', 0.05],
-      ['Misc', 0.03],
-    ]
-    let allocated = 0
-    for (let i = 0; i < splits.length; i++) {
-      const [label, ratio] = splits[i]
-      const amount =
-        i === splits.length - 1
-          ? Math.round(tripBudget - allocated)
-          : Math.round(tripBudget * ratio)
-      allocated += amount
-      totals.set(label, amount)
-    }
+    totals.set('Total budget (breakdown unavailable)', Math.round(tripBudget))
   } else if (tripBudget > 0 && summed > 0 && summed < tripBudget * 0.85) {
     add('Misc', Math.round(tripBudget - summed))
   }
 
-  const order = ['Flights', 'Hotels', 'Food', 'Activities', 'Transport', 'Misc']
+  const order = ['Flights', 'Hotels', 'Food', 'Activities', 'Transport', 'Misc', 'Total budget (breakdown unavailable)']
   const rows: BudgetChartCategory[] = order
     .filter((label) => (totals.get(label) ?? 0) > 0)
     .map((label) => ({
@@ -126,12 +133,99 @@ export function deriveBudgetCategoriesFromTripData(params: {
   return rows
 }
 
+function parseBudgetAmount(value: unknown): number {
+  if (value == null) return 0
+  const n =
+    typeof value === 'number'
+      ? value
+      : Number(String(value).replace(/,/g, '').trim())
+  return Number.isFinite(n) ? n : 0
+}
+
 export function budgetRowsToChartCategories(
   rows: BudgetCategoryRow[],
 ): BudgetChartCategory[] {
   return rows.map((c) => ({
     label: c.label,
-    amount: Number(c.amount_usd),
+    amount: parseBudgetAmount(c.amount_usd),
     color: c.color ?? DEFAULT_COLORS[c.label] ?? '#737373',
   }))
+}
+
+function sumCategoryAmounts(categories: BudgetChartCategory[]): number {
+  return categories.reduce((sum, c) => sum + c.amount, 0)
+}
+
+/** Allocate total trip budget INR across standard (or saved) category labels. */
+export function allocateTripBudgetToCategories(
+  tripBudgetInr: number,
+  rows?: BudgetCategoryRow[],
+): BudgetChartCategory[] {
+  const budget = Math.round(tripBudgetInr)
+  if (!Number.isFinite(budget) || budget <= 0) return []
+
+  const labels =
+    rows?.map((r) => r.label).filter(Boolean) ??
+    [...STANDARD_BUDGET_LABELS]
+  const knownPctSum = labels.reduce(
+    (sum, label) => sum + (BUDGET_SPLIT_PCT[label] ?? 0),
+    0,
+  )
+  const evenPct = labels.length ? 1 / labels.length : 0
+
+  const categories: BudgetChartCategory[] = []
+  let allocated = 0
+  for (let i = 0; i < labels.length; i += 1) {
+    const label = labels[i]
+    const pct =
+      knownPctSum > 0
+        ? (BUDGET_SPLIT_PCT[label] ?? 0) / knownPctSum
+        : evenPct
+    const amount =
+      i === labels.length - 1
+        ? Math.max(0, budget - allocated)
+        : Math.round(budget * pct)
+    allocated += amount
+    if (amount > 0) {
+      const row = rows?.find((r) => r.label === label)
+      categories.push({
+        label,
+        amount,
+        color: row?.color ?? DEFAULT_COLORS[label] ?? '#737373',
+      })
+    }
+  }
+  return categories
+}
+
+/**
+ * Prefer saved budget_categories; when rows are empty or all ₹0, derive from
+ * itinerary/hotels/flights or allocate trip.budget_usd.
+ */
+export function resolveBudgetChartCategories(params: {
+  rows?: BudgetCategoryRow[]
+  trip?: TripRow | null
+  itinerary?: ItineraryDay[]
+  hotels?: TripHotelRow[]
+  flights?: TripFlightRow[]
+}): BudgetChartCategory[] {
+  const fromRows = params.rows?.length ? budgetRowsToChartCategories(params.rows) : []
+  if (sumCategoryAmounts(fromRows) > 0) return fromRows
+
+  if (params.trip) {
+    const derived = deriveBudgetCategoriesFromTripData({
+      trip: params.trip,
+      itinerary: params.itinerary,
+      hotels: params.hotels,
+      flights: params.flights,
+    })
+    if (sumCategoryAmounts(derived) > 0) return derived
+
+    const tripBudget = parseBudgetAmount(params.trip.budget_usd)
+    if (tripBudget > 0) {
+      return allocateTripBudgetToCategories(tripBudget, params.rows)
+    }
+  }
+
+  return []
 }

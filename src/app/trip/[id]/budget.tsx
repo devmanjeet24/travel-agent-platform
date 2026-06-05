@@ -12,10 +12,7 @@ import {
   useTripItineraryQuery,
 } from '@/hooks/trips/use-trip-query'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
-import {
-  budgetRowsToChartCategories,
-  deriveBudgetCategoriesFromTripData,
-} from '@/utils/derive-trip-budget'
+import { resolveBudgetChartCategories } from '@/utils/derive-trip-budget'
 
 export default function BudgetScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -26,16 +23,17 @@ export default function BudgetScreen() {
   const { data: flights, isLoading: flightsLoading } = useTripFlightsQuery(id)
   const { trip, needsPlan, isPlanning, queriesLoading, planError, retryPlan } = useTripPlan()
 
-  const chartCategories = useMemo(() => {
-    if (categories?.length) return budgetRowsToChartCategories(categories)
-    if (!trip) return []
-    return deriveBudgetCategoriesFromTripData({
-      trip,
-      itinerary,
-      hotels,
-      flights,
-    })
-  }, [categories, trip, itinerary, hotels, flights])
+  const chartCategories = useMemo(
+    () =>
+      resolveBudgetChartCategories({
+        rows: categories,
+        trip,
+        itinerary,
+        hotels,
+        flights,
+      }),
+    [categories, trip, itinerary, hotels, flights],
+  )
 
   const total = chartCategories.reduce((s, c) => s + c.amount, 0)
   const dataLoading =

@@ -34,6 +34,8 @@ export type SendChatVariables = {
   message: string;
   history: ChatHistoryItem[];
   conversationId?: string;
+  /** Stable per send — prevents duplicate trips on retries. */
+  clientRequestId?: string;
   tripId?: string;
   attachments?: ChatAttachment[];
   tripContext?: {
@@ -41,6 +43,7 @@ export type SendChatVariables = {
     origin?: string;
     startDate?: string;
     endDate?: string;
+    tripDurationDays?: number;
     /** Budget in INR. */
     budgetInr?: number;
     travelers?: number;

@@ -1,5 +1,7 @@
 /** Display helpers for trip_hotels rows (OSM + cached raw metadata). */
 
+import { formatInrPerNight } from '@/utils/currency'
+
 export type TripHotelRaw = {
   source?: string
   address?: string | null
@@ -109,6 +111,20 @@ export function hotelPriceLabel(raw: unknown): string {
   if (r?.priceNote) return r.priceNote
   if (r?.priceSource === 'osm_fee') return 'Rate from OpenStreetMap'
   return 'Estimated nightly rate (OSM has no live prices)'
+}
+
+export function hotelNightlyPriceText(
+  pricePerNight: number | null | undefined,
+  raw: unknown,
+): string {
+  const r = parseHotelRaw(raw)
+  if (pricePerNight == null || !Number.isFinite(Number(pricePerNight))) {
+    return 'Price unavailable'
+  }
+  if (r?.priceSource === 'estimate') {
+    return `Est. ${formatInrPerNight(Number(pricePerNight))}`
+  }
+  return formatInrPerNight(Number(pricePerNight))
 }
 
 export function hotelFallbackImageUrl(raw: unknown, hotelName = ''): string | null {

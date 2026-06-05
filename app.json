@@ -103,16 +103,15 @@
           "locationWhenInUsePermission": "Allow location access to set your origin city for flights and transport."
         }
       ],
-      "@react-native-community/datetimepicker",
-      "expo-build-properties"
+      "@react-native-community/datetimepicker"
     ],
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
-      "enabled": true,
+      "enabled": false,
       "url": "https://u.expo.dev/ce2c8b13-cf53-452c-8df1-38ce3c720cb4",
-      "checkAutomatically": "ON_LOAD",
+      "checkAutomatically": "ON_ERROR_RECOVERY",
       "fallbackToCacheTimeout": 0
     },
     "experiments": {
