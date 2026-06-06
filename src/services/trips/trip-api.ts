@@ -8,7 +8,7 @@ import type {
   TripHotelRow,
   TripRow,
 } from '@/types/database';
-import { isStaleHotelRow } from '@/utils/travel-data-validity';
+import { isStaleFlightRow, isStaleHotelRow } from '@/utils/travel-data-validity';
 
 export type CreateTripInput = {
   title: string;
@@ -185,11 +185,13 @@ export async function fetchItinerary(tripId: string): Promise<
   if (!days?.length) return [];
 
   const dayIds = days.map((d) => d.id);
-  const { data: activities } = await supabase
+  const { data: activities, error: activitiesError } = await supabase
     .from('itinerary_activities')
     .select('*')
     .in('day_id', dayIds)
     .order('sort_order');
+
+  if (activitiesError) throw new Error(activitiesError.message);
 
   return (days as ItineraryDayRow[]).map((day) => ({
     ...day,
@@ -240,7 +242,7 @@ export async function fetchTripFlights(tripId: string): Promise<TripFlightRow[]>
     .order('created_at');
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as TripFlightRow[];
+  return ((data ?? []) as TripFlightRow[]).filter((flight) => !isStaleFlightRow(flight));
 }
 
 export async function fetchPackingItems(tripId: string): Promise<PackingItemRow[]> {

@@ -24,6 +24,9 @@ export async function formatChatInvokeError(
   }
 
   const msg = error.message;
+  if (/tool call validation failed/i.test(msg)) {
+    return 'The AI is briefly busy. Please wait a moment and send your message again.';
+  }
   if (msg.includes('Failed to send a request to the Edge Function')) {
     return (
       'Chat Edge Function is not deployed (or unreachable). ' +
@@ -39,12 +42,18 @@ export async function formatChatInvokeError(
   return msg;
 }
 
+import {
+  parseChatToolEffects,
+  type ChatToolEffect,
+} from '@/utils/chat-trip-sync';
+
 export type ParsedChatResponse = {
   reply: string | null;
   conversationId?: string;
   warning?: string;
   tripId?: string;
   openTripId?: string;
+  effects?: ChatToolEffect[];
 };
 
 export function parseChatReply(data: unknown): ParsedChatResponse {
@@ -69,5 +78,6 @@ export function parseChatReply(data: unknown): ParsedChatResponse {
     warning: obj.warning,
     tripId: obj.tripId,
     openTripId: obj.openTripId,
+    effects: parseChatToolEffects(data),
   };
 }

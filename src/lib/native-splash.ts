@@ -5,7 +5,14 @@ export const NATIVE_SPLASH_MIN_MS = 2000;
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-SplashScreen.setOptions({
-  duration: 300,
-  fade: true,
-});
+try {
+  SplashScreen.setOptions({
+    duration: 300,
+    fade: true,
+  });
+} catch (error) {
+  console.warn(
+    '[splash] setOptions unavailable in this runtime:',
+    error instanceof Error ? error.message : error,
+  );
+}

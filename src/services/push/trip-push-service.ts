@@ -1,8 +1,5 @@
 import { parseIsoDateString } from '@/utils/date-format';
-import {
-  createTripNotifications,
-  type CreateTripNotificationsParams,
-} from '@/services/notifications/notification-api';
+import type { CreateTripNotificationsParams } from '@/services/notifications/notification-api';
 import { fetchProfile } from '@/services/profile/profile-api';
 import {
   cancelAllTripPushNotifications,
@@ -16,14 +13,12 @@ export async function isPushNotificationsEnabled(userId: string): Promise<boolea
   return profile?.push_notifications_enabled ?? true;
 }
 
-/** In-app notification rows + local day-before reminder (remote push sent by plan-trip). */
+/** Local day-before reminder; in-app rows are created by plan-trip / chat edge functions. */
 export async function setupTripPushAndNotifications(
   params: CreateTripNotificationsParams,
 ): Promise<void> {
   const enabled = await isPushNotificationsEnabled(params.userId);
   if (!enabled) return;
-
-  await createTripNotifications(params);
 
   if (!params.startDate) return;
 

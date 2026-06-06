@@ -1,4 +1,13 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native'
+import { useMemo } from 'react'
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
 import { Mic, Paperclip, Send, Square, Volume2 } from 'lucide-react-native'
 
 import { brand, spacing } from '@/constants/design'
@@ -9,8 +18,8 @@ import { useResponsive } from '@/hooks/use-responsive'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 import { radii } from '@/lib/ui-styles'
 
-/** Minimum touch target (dp) — Material / WCAG-aligned for APK. */
-const MIN_TOUCH = 44
+const SEND_SIZE = 40
+const ICON_SIZE = 36
 
 type Props = {
   input: string
@@ -23,6 +32,8 @@ type Props = {
   isSending: boolean
   voicePhase: VoiceAssistantPhase
   paddingBottom: number
+  /** When wrapped by a parent footer shell (e.g. chat tab), skip outer chrome. */
+  embedded?: boolean
 }
 
 function voiceHint(phase: VoiceAssistantPhase): string | null {
@@ -49,24 +60,69 @@ export function ChatComposer({
   isSending,
   voicePhase,
   paddingBottom,
+  embedded = false,
 }: Props) {
   const theme = useThemedStyles()
-  const { scaleFont, isSmallPhone } = useResponsive()
-  const { width: screenWidth } = useWindowDimensions()
+  const { scaleFont, isSmallPhone, horizontalPadding } = useResponsive()
   const hint = voiceHint(voicePhase)
   const isRecording = voicePhase === 'recording'
   const isSpeaking = voicePhase === 'speaking'
   const voiceBusy = voicePhase !== 'idle'
 
+  const hasInput = input.trim().length > 0
+  const allowMultiline = hasInput && (input.includes('\n') || input.length > 72)
+
+  const placeholder = isSmallPhone ? 'Message agent…' : 'Message your travel agent…'
+
+  const inputFontSize = scaleFont(isSmallPhone ? 15 : 16)
+  const inputLineHeight = Math.round(inputFontSize * (Platform.OS === 'android' ? 1.25 : 1.22))
+  const inputVerticalInset = Platform.OS === 'android' ? 8 : 6
+  const singleLineBoxHeight = inputLineHeight + inputVerticalInset * 2
+
+  const inputStyle = useMemo(
+    () => ({
+      flex: 1,
+      minWidth: 0,
+      color: theme.colors.text,
+      fontSize: inputFontSize,
+      lineHeight: inputLineHeight,
+      minHeight: singleLineBoxHeight,
+      maxHeight: allowMultiline ? 120 : singleLineBoxHeight,
+      paddingTop: inputVerticalInset,
+      paddingBottom: inputVerticalInset,
+      paddingHorizontal: spacing.xs,
+      textAlignVertical: 'center' as const,
+      ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+    }),
+    [
+      allowMultiline,
+      inputFontSize,
+      inputLineHeight,
+      inputVerticalInset,
+      singleLineBoxHeight,
+      theme.colors.text,
+    ],
+  )
+
   return (
     <View
       style={[
         styles.shell,
+        embedded ? styles.shellEmbedded : null,
         {
-          width: screenWidth,
           paddingBottom,
-          backgroundColor: theme.colors.card,
-          borderColor: theme.colors.border,
+          paddingHorizontal: horizontalPadding,
+          backgroundColor: embedded ? 'transparent' : theme.colors.card,
+          borderTopColor: theme.colors.border,
+          ...(embedded || theme.isDark
+            ? {}
+            : {
+                shadowColor: '#0F172A',
+                shadowOffset: { width: 0, height: -2 },
+                shadowOpacity: 0.06,
+                shadowRadius: 8,
+                elevation: 8,
+              }),
         },
       ]}
     >
@@ -85,7 +141,9 @@ export function ChatComposer({
               }}
             />
           )}
-          <Text style={textWithWeight(typography.caption, '600', { color: brand.ai })}>{hint}</Text>
+          <Text style={textWithWeight(typography.caption, '600', { color: brand.ai })} numberOfLines={1}>
+            {hint}
+          </Text>
         </View>
       ) : null}
 
@@ -93,9 +151,8 @@ export function ChatComposer({
         style={[
           styles.inputBar,
           {
-            width: screenWidth - spacing.lg * 2,
             backgroundColor: theme.isDark ? theme.colors.muted : theme.colors.background,
-            borderColor: isRecording ? `${brand.danger}55` : theme.colors.border,
+            borderColor: isRecording ? `${brand.danger}66` : theme.colors.border,
           },
         ]}
       >
@@ -104,15 +161,16 @@ export function ChatComposer({
           accessibilityLabel="Attach file"
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           onPress={onPickAttachment}
-          style={styles.iconBtn}
+          style={styles.sideIconBtn}
         >
-          <Paperclip size={isSmallPhone ? 20 : 22} color={theme.colors.icon} />
+          <Paperclip size={isSmallPhone ? 19 : 21} color={theme.colors.icon} />
         </Pressable>
 
         <TextInput
-          placeholder="Message your travel agent..."
+          placeholder={placeholder}
           placeholderTextColor={theme.colors.textMuted}
-          multiline
+          multiline={allowMultiline}
+          scrollEnabled={allowMultiline}
           value={input}
           onChangeText={onChangeText}
           editable={!isSending && !voiceBusy}
@@ -120,63 +178,57 @@ export function ChatComposer({
             if (canSend) onSend()
           }}
           blurOnSubmit={false}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            color: theme.colors.text,
-            fontSize: scaleFont(16),
-            lineHeight: 22,
-            maxHeight: 120,
-            paddingVertical: 8,
-            paddingHorizontal: spacing.xs,
-          }}
+          returnKeyType="send"
+          style={inputStyle}
         />
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={isSpeaking ? 'Stop speaking' : 'Voice input'}
-          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-          style={[
-            styles.iconBtn,
-            {
-              borderRadius: radii.md,
-              backgroundColor: isRecording
-                ? `${brand.danger}18`
-                : isSpeaking
-                  ? `${brand.ai}18`
-                  : 'transparent',
-            },
-          ]}
-          onPress={isSpeaking ? onStopVoice : onToggleVoice}
-          disabled={isSending || voicePhase === 'transcribing'}
-        >
-          {isSpeaking ? (
-            <Square size={20} color={brand.ai} fill={brand.ai} />
-          ) : (
-            <Mic size={22} color={isRecording ? brand.danger : brand.ai} />
-          )}
-        </Pressable>
+        <View style={styles.actions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={isSpeaking ? 'Stop speaking' : 'Voice input'}
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+            style={[
+              styles.sideIconBtn,
+              {
+                borderRadius: radii.md,
+                backgroundColor: isRecording
+                  ? `${brand.danger}18`
+                  : isSpeaking
+                    ? `${brand.ai}18`
+                    : 'transparent',
+              },
+            ]}
+            onPress={isSpeaking ? onStopVoice : onToggleVoice}
+            disabled={isSending || voicePhase === 'transcribing'}
+          >
+            {isSpeaking ? (
+              <Square size={18} color={brand.ai} fill={brand.ai} />
+            ) : (
+              <Mic size={20} color={isRecording ? brand.danger : brand.ai} />
+            )}
+          </Pressable>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Send message"
-          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-          onPress={onSend}
-          disabled={!canSend}
-          style={[
-            styles.sendBtn,
-            {
-              backgroundColor: canSend ? brand.primary : theme.colors.muted,
-              opacity: canSend ? 1 : 0.7,
-            },
-          ]}
-        >
-          {isSending ? (
-            <ActivityIndicator size="small" color={brand.onPrimary} />
-          ) : (
-            <Send size={20} color={canSend ? brand.onPrimary : theme.colors.icon} />
-          )}
-        </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Send message"
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            onPress={onSend}
+            disabled={!canSend}
+            style={[
+              styles.sendBtn,
+              {
+                backgroundColor: canSend ? brand.primary : theme.colors.muted,
+                opacity: canSend ? 1 : 0.85,
+              },
+            ]}
+          >
+            {isSending ? (
+              <ActivityIndicator size="small" color={brand.onPrimary} />
+            ) : (
+              <Send size={18} color={canSend ? brand.onPrimary : theme.colors.icon} />
+            )}
+          </Pressable>
+        </View>
       </View>
     </View>
   )
@@ -186,41 +238,54 @@ const styles = StyleSheet.create({
   shell: {
     borderTopLeftRadius: radii.xl,
     borderTopRightRadius: radii.xl,
-    borderTopWidth: 1,
-    paddingTop: spacing.md,
-    paddingHorizontal: spacing.lg,
-    overflow: 'hidden',
-    elevation: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: spacing.sm + 2,
+    overflow: 'visible',
+  },
+  shellEmbedded: {
+    borderTopWidth: 0,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs,
   },
   hintRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'center',
-    paddingLeft: spacing.sm,
-    paddingRight: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.lg,
+    minHeight: 48,
+    paddingLeft: spacing.xs,
+    paddingRight: spacing.xs,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radii.xl,
     borderWidth: 1,
-    elevation: 0,
+    overflow: 'visible',
   },
-  iconBtn: {
-    width: MIN_TOUCH,
-    height: MIN_TOUCH,
+  sideIconBtn: {
+    width: ICON_SIZE,
+    height: ICON_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 2,
+    marginLeft: spacing.xs,
   },
   sendBtn: {
-    width: MIN_TOUCH,
-    height: MIN_TOUCH,
-    borderRadius: radii.md,
+    width: SEND_SIZE,
+    height: SEND_SIZE,
+    borderRadius: SEND_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: spacing.xs,
   },
 })

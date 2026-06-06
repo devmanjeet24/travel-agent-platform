@@ -20,7 +20,7 @@ export function ScreenHeader({ title, subtitle, eyebrow, showBack, rightElement 
   const theme = useThemedStyles()
   const handleBackPress = () => {
     if (router.canGoBack()) router.back()
-    else router.replace('/(tabs)/index')
+    else router.replace('/(tabs)')
   }
 
   return (

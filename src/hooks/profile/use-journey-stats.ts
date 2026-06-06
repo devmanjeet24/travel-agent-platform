@@ -11,7 +11,11 @@ export const journeyStatsKeys = {
 
 export function useJourneyStats() {
   const { data: trips, isLoading: tripsLoading } = useTripsQuery();
-  const { data: itineraryTripIds, isLoading: itineraryLoading } = useQuery({
+  const {
+    data: itineraryTripIds,
+    isLoading: itineraryLoading,
+    refetch: refetchItineraryIds,
+  } = useQuery({
     queryKey: journeyStatsKeys.itineraryTripIds,
     queryFn: fetchTripIdsWithItinerary,
   });
@@ -21,8 +25,13 @@ export function useJourneyStats() {
     [trips, itineraryTripIds],
   );
 
+  const refetch = async () => {
+    await Promise.all([refetchItineraryIds()]);
+  };
+
   return {
     stats,
     isLoading: tripsLoading || itineraryLoading,
+    refetch,
   };
 }

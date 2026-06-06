@@ -2,7 +2,7 @@ import * as WebBrowser from 'expo-web-browser'
 import { Platform } from 'react-native'
 import type { Session } from '@supabase/supabase-js'
 
-import { parseAuthParamsFromUrl } from '@/lib/auth-deep-link'
+import { parseAuthParamsFromUrl } from '@/lib/auth-url-params'
 import { getAuthRedirectUrl } from '@/lib/auth-redirect'
 import { getSupabaseOrNull } from '@/lib/supabase'
 import { formatAuthError, type AuthResult } from '@/services/auth/auth-api'
