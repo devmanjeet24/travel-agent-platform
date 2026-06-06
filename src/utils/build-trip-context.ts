@@ -1,5 +1,5 @@
 import type { ChatHistoryItem, SendChatVariables } from '@/services/chat/chat-types'
-import { parseTripContextFromMessage } from '@/utils/trip-context-parse'
+import { mergeTripContextFromMessages, parseTripContextFromMessage, type ParsedTripContext } from '@/utils/trip-context-parse'
 
 export function buildTripContextForChat(params: {
   message: string
@@ -8,19 +8,20 @@ export function buildTripContextForChat(params: {
   /** When omitted, only the current message is parsed (new chat must not reuse prior turns). */
   conversationId?: string
 }): SendChatVariables['tripContext'] | undefined {
-  let merged: NonNullable<SendChatVariables['tripContext']> = {}
+  const historyMessages = (params.history ?? []).map((item) => ({
+    role: item.role,
+    content: item.content,
+  }))
+  let merged: ParsedTripContext = {}
   if (params.conversationId) {
-    for (const item of params.history ?? []) {
-      if (item.role !== 'user') continue
-      merged = { ...merged, ...parseTripContextFromMessage(item.content) }
-    }
+    merged = mergeTripContextFromMessages(historyMessages)
   }
   const fromMessage = parseTripContextFromMessage(params.message)
-  const deviceOrigin = params.originCity.trim()
   merged = {
     ...merged,
     ...fromMessage,
   }
+  const deviceOrigin = params.originCity.trim()
   if (!merged.origin?.trim() && deviceOrigin) {
     merged.origin = deviceOrigin
   }

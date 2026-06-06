@@ -16,21 +16,18 @@ import {
   TRIP_SAVE_FAILURE_REPLY,
   tripWasPersistedFromEffects,
   verifyTripSavedForUser,
-  gatherTripContextFromHistory,
+  buildConversationGatheredContext,
   formatGatheredTripDetailsSection,
-  mergeGatheredTripContext,
-  logGatheredTripDatePipeline,
+  logTripPersistPipeline,
   maybeAutoPersistTrip,
   maybeAutoDeleteTrip,
   messageNeedsChatTools,
   messageIsTripsTabNavigationIntent,
-  parseTripContextFromText,
   selectChatAgentTools,
   CHAT_AGENT_TOOLS,
   findChatRequestReplay,
   isChatRequestInFlight,
   stripRawToolMarkupFromReply,
-  tripSummaryToGatheredContext,
   type ChatHistoryMessage,
   type ChatToolEffect,
   type GatheredTripContext,
@@ -51,8 +48,10 @@ const deno = globalThis as typeof globalThis & {
 const SYSTEM_PROMPT = `You are a concise in-app AI travel agent for Indian travelers.
 
 Rules:
+- NEVER include [CHAT MEMORY], [TRIP MEMORY], [GATHERED TRIP DETAILS], [CLIENT TRIP CONTEXT], [AUTO ACTION], or any bracketed internal sections in your reply. Those blocks are private context only — respond with normal conversational text.
 - Saved trips: use [TRIP MEMORY] and tools only; never invent saved-trip facts.
 - Continue from [CHAT MEMORY], [GATHERED TRIP DETAILS], and recent messages in this thread only. Never re-ask for fields listed as Known.
+- If Still needed shows "none", do NOT ask any trip planning questions — the app auto-saves; confirm only after [AUTO ACTION].
 - New conversations: never reuse destination, dates, budget, or travelers from other chats or old saved trips unless the user explicitly references them.
 - Ask at most one short follow-up only for fields listed under Still needed.
 - Required before saving: destination, origin, start date, end date or trip duration, travelers, and INR budget.
@@ -655,11 +654,12 @@ async function saveAssistantReply(input: {
   openTripId?: string;
 }) {
   if (!input.conversationId) return;
+  const cleanedReply = stripRawToolMarkupFromReply(input.reply);
   await safeDb('insert assistant message', async () => {
     const { error } = await input.supabase.from('chat_messages').insert({
       conversation_id: input.conversationId,
       role: 'assistant',
-      content: input.reply,
+      content: cleanedReply,
       metadata: {
         toolEffects: input.effects,
         tripId: input.connectedTripId,
@@ -945,17 +945,6 @@ async function runChatTurn(
     }
 
     const preMemoryHistory: ChatHistoryMessage[] = history;
-    const parsedContext = parseTripContextFromText(message);
-    logGatheredTripDatePipeline('1-parseTripContextFromText', parsedContext);
-    logGatheredTripDatePipeline('1b-clientTripContext', body.tripContext ?? {}, {
-      source: 'body.tripContext',
-    });
-    const initialGatheredTrip = mergeGatheredTripContext(
-      gatherTripContextFromHistory(preMemoryHistory),
-      parsedContext,
-      body.tripContext,
-    );
-    logGatheredTripDatePipeline('2-initialGatheredTrip', initialGatheredTrip);
 
     const memory = await buildChatMemoryContext({
       supabase,
@@ -967,30 +956,26 @@ async function runChatTurn(
       isNewConversation,
     });
 
-    const gatheredSources: Array<GatheredTripContext | undefined | null> = [
-      initialGatheredTrip,
-      gatherTripContextFromHistory(memory.authoritativeHistory),
-      parseTripContextFromText(message),
-    ];
-    if (body.tripId && memory.activeTrip) {
-      gatheredSources.push(tripSummaryToGatheredContext(memory.activeTrip));
-    }
-    const fullGatheredTrip = mergeGatheredTripContext(
-      ...gatheredSources,
-      body.tripContext,
-    );
-    logGatheredTripDatePipeline('3-fullGatheredTrip', fullGatheredTrip);
+    const fullGatheredTrip = buildConversationGatheredContext({
+      clientHistory: preMemoryHistory,
+      authoritativeHistory: memory.authoritativeHistory,
+      currentMessage: message,
+      clientTripContext: body.tripContext,
+    });
+    logTripPersistPipeline('gatheredTripContext', fullGatheredTrip, {
+      clientTripContext: body.tripContext ?? null,
+    });
     const fullTripRequirements = assessTripRequirements(fullGatheredTrip);
-    logGatheredTripDatePipeline('4-assessTripRequirements', fullGatheredTrip, {
-      complete: fullTripRequirements.complete,
-      missing: fullTripRequirements.missing,
-      canPersist: canPersistTripFromChat(
-        message,
-        fullGatheredTrip,
-        history,
-        memory.activeTrip,
-        memory.conversationTripId,
-      ),
+    const canPersist = canPersistTripFromChat(
+      message,
+      fullGatheredTrip,
+      memory.authoritativeHistory,
+      memory.activeTrip,
+      memory.conversationTripId,
+    );
+    logTripPersistPipeline('canPersistTripFromChat', fullGatheredTrip, {
+      canPersist,
+      missingFields: fullTripRequirements.missing,
     });
     const tripContext = fullGatheredTrip;
 

@@ -86,6 +86,98 @@ function sanitizeDestination(destination: string): string {
     .trim()
 }
 
+const DESTINATION_COUNTRY_WORDS =
+  /\b(?:Australia|India|Japan|USA|U\.?S\.?A|UK|U\.?K|Thailand|Singapore|Dubai|France|Italy|Spain|Germany|Canada|Nepal|Sri Lanka|New Zealand|Indonesia|Vietnam|China|Korea|Malaysia|Philippines|UAE|Switzerland|Netherlands|Greece|Turkey|Egypt|Brazil|Mexico|Argentina|South Africa|Portugal|Ireland|Scotland|England|Wales|Hong Kong|Taiwan|Cambodia|Maldives|Bhutan|Bangladesh|Pakistan|Qatar|Saudi Arabia|Oman|Israel|Morocco|Kenya|Tanzania|Iceland|Norway|Sweden|Denmark|Finland|Belgium|Austria|Czech Republic|Hungary|Poland|Croatia|Romania|Russia|Peru|Colombia|Chile|Cuba|Jamaica|Bahamas|Fiji|Bali|Hawaii|Europe|Asia)\b/i
+
+function parseTravelersFromText(text: string): number | undefined {
+  const numeric = text.match(
+    /(\d+)\s*(?:people|travelers|travellers|guests|pax|friends?|adults?)\b/i,
+  )
+  if (numeric) return Number(numeric[1])
+  if (/\bme\s+and\s+my\s+friends?\b/i.test(text)) return 2
+  if (/\bmy\s+friend\s+and\s+(?:i|me)\b/i.test(text)) return 2
+  if (/\b(?:the\s+)?two\s+of\s+us\b/i.test(text)) return 2
+  if (/\b(?:just\s+)?me\s+and\s+(?:a\s+)?friend\b/i.test(text)) return 2
+  const weAre = text.match(/\bwe\s+are\s+(\d+)\b/i)
+  if (weAre) return Number(weAre[1])
+  return undefined
+}
+
+const WORD_NUMBER: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+}
+
+function parseTripDurationDaysFromText(text: string): number | undefined {
+  const numeric = text.match(/\b(?:for\s+)?(\d{1,3})\s+days?\b/i)
+  if (numeric) return Math.max(1, Number(numeric[1]))
+  const word = text.match(
+    /\b(?:for\s+)?(one|two|three|four|five|six|seven|eight|nine|ten)\s+days?\b/i,
+  )
+  if (word) return WORD_NUMBER[word[1].toLowerCase()]
+  return undefined
+}
+
+function parseDestinationFromText(text: string): string | undefined {
+  const destPatterns = [
+    /\bplanning\s+for\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+for\b|\s+from\b|,|\s+\d|\s+with\b|\s+trip\b|\.|$)/i,
+    /\bplanning\s+a\s+trip\s+to\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|\s+we\b|\.|$)/i,
+    /\b(?:are\s+)?planned\s+to\s+go(?:\s+to)?\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:,|\s+for\b|\s+with\b|\s+from\b|\s+and\b|\.|$)/i,
+    /\bplan(?:ning)?\s+to\s+go(?:\s+to)?\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\s+from\b|\s+and\b|\.|$)/i,
+    /\bgo\s+to\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:,|\s+for\b|\s+with\b|\s+from\b|\s+and\b|\.|$)/i,
+    /\b(?:going\s+to|travel\s+to|visit)\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\.|$)/i,
+    /\btrip\s+to\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\.|$)/i,
+    /(?:^|[,.]\s*)(?:to|in)\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\s+with\s+|\.|,|$)/i,
+  ]
+  for (const pattern of destPatterns) {
+    const match = text.match(pattern)
+    if (!match) continue
+    const candidate = sanitizeDestination(match[1].trim())
+    const weak =
+      candidate.length < 3 ||
+      /^(this|that|there|here)(\s+trip)?$/i.test(candidate) ||
+      candidate.toLowerCase() === 'this trip'
+    if (!weak) return candidate
+  }
+  return undefined
+}
+
+/** Short replies like "Melbourne Australia" → destination, not origin. */
+function parseStandaloneDestination(text: string): string | undefined {
+  const trimmed = text.trim()
+  if (trimmed.length < 3 || trimmed.length > 56 || /\d/.test(trimmed)) return undefined
+  if (/^(yes|no|ok|okay|sure|thanks|thank you|hi|hello|hey|please|ask)\b/i.test(trimmed)) {
+    return undefined
+  }
+  if (DESTINATION_COUNTRY_WORDS.test(trimmed)) {
+    return sanitizeDestination(trimmed.replace(/[?.!]+$/, ''))
+  }
+  const twoWord = trimmed.match(/^([A-Za-z][A-Za-z\s-]{1,30})\s+([A-Za-z][A-Za-z\s-]{2,24})$/)
+  if (twoWord && twoWord[2].length >= 4) {
+    return sanitizeDestination(`${twoWord[1]} ${twoWord[2]}`.replace(/[?.!]+$/, ''))
+  }
+  return undefined
+}
+
+export function mergeTripContextFromMessages(
+  messages: Array<{ role: string; content: string }>,
+): ParsedTripContext {
+  let merged: ParsedTripContext = {}
+  for (const item of messages) {
+    if (item.role !== 'user') continue
+    merged = { ...merged, ...parseTripContextFromMessage(item.content) }
+  }
+  return merged
+}
+
 function parseLabeledTripFields(text: string): ParsedTripContext {
   const ctx: ParsedTripContext = {}
 
@@ -131,7 +223,7 @@ function parseLabeledTripFields(text: string): ParsedTripContext {
     }
   }
 
-  const budgetExplicit = text.match(/\b(?:we\s+have\s+)?(\d{1,3}(?:,\d{2,3})+|\d{5,7})\s*budget\b/i)
+  const budgetExplicit = text.match(/\b(?:we\s+have\s+)?(\d{1,3}(?:,\d{2,3})+|\d{5,7})\s*(?:of\s+)?budget\b/i)
   if (budgetExplicit) {
     ctx.budgetInr = Number(budgetExplicit[1].replace(/,/g, ''))
   }
@@ -147,31 +239,11 @@ export function parseTripContextFromMessage(text: string): ParsedTripContext {
   if (dateRange.startDate) ctx.startDate = dateRange.startDate
   if (dateRange.endDate) ctx.endDate = dateRange.endDate
 
-  const destPatterns = [
-    /\bplanning\s+a\s+trip\s+to\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|\s+we\b|\.|$)/i,
-    /\bplan(?:ning)?\s+to\s+go(?:\s+to)?\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\s+from\b|\s+and\b|\.|$)/i,
-    /\b(?:going\s+to|travel\s+to|visit)\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\.|$)/i,
-    /\btrip\s+to\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\.|$)/i,
-    /(?:^|[,.]\s*)(?:to|in)\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\s+with\s+|\.|,|$)/i,
-  ]
-  for (const pattern of destPatterns) {
-    const match = text.match(pattern)
-    if (!match) continue
-    const destination = sanitizeDestination(match[1].trim())
-    const weak =
-      destination.length < 3 ||
-      /^(this|that|there|here)(\s+trip)?$/i.test(destination) ||
-      destination.toLowerCase() === 'this trip'
-    if (!weak) {
-      ctx.destination = destination
-      break
-    }
-  }
+  const destination = parseDestinationFromText(text)
+  if (destination) ctx.destination = destination
 
-  const travelersMatch = text.match(
-    /(\d+)\s*(?:people|travelers|travellers|guests|pax|friends?)/i,
-  )
-  if (travelersMatch) ctx.travelers = Number(travelersMatch[1])
+  const travelers = parseTravelersFromText(text)
+  if (travelers != null) ctx.travelers = travelers
 
   const budgetInr = parseBudgetFromText(text, { travelers: ctx.travelers })
   if (budgetInr != null) ctx.budgetInr = budgetInr
@@ -182,7 +254,16 @@ export function parseTripContextFromMessage(text: string): ParsedTripContext {
   if (originMatch) ctx.origin = originMatch[1].trim()
 
   const trimmed = text.trim()
-  if (!ctx.origin && trimmed.length > 2 && trimmed.length < 56) {
+  if (!ctx.destination && trimmed.length >= 3 && trimmed.length < 56) {
+    const standaloneDest = parseStandaloneDestination(trimmed)
+    if (standaloneDest) ctx.destination = standaloneDest
+  }
+  if (
+    !ctx.origin &&
+    !ctx.destination &&
+    trimmed.length > 2 &&
+    trimmed.length < 56
+  ) {
     const transportOnly = /^(flight|flights|train|trains|bus|buses|road|car)$/i.test(trimmed)
     const bareCity = trimmed.match(/^([A-Za-z][A-Za-z\s]{2,40}?)(?:\s+India)?$/i)
     if (!transportOnly && bareCity && !/\d{4,}/.test(trimmed)) {
@@ -307,10 +388,8 @@ export function parseTripContextFromMessage(text: string): ParsedTripContext {
     }
   }
 
-  const durationMatch = text.match(/\b(?:for\s+)?(\d{1,3})\s+days?\b/i)
-  if (durationMatch) {
-    ctx.tripDurationDays = Math.max(1, Number(durationMatch[1]))
-  }
+  const durationDays = parseTripDurationDaysFromText(text)
+  if (durationDays != null) ctx.tripDurationDays = durationDays
   if (ctx.tripDurationDays && ctx.startDate && !ctx.endDate) {
     const start = new Date(`${ctx.startDate}T00:00:00Z`)
     if (!Number.isNaN(start.getTime())) {

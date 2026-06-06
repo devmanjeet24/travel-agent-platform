@@ -416,19 +416,20 @@ export function parseTripDateRangeFromText(text: string): {
   return { startDate, endDate };
 }
 
-/** Log parsed vs resolved dates through the trip-save pipeline. */
-export function logGatheredTripDatePipeline(
+/** Log gathered context through the trip-save pipeline. */
+export function logTripPersistPipeline(
   step: string,
   ctx: GatheredTripContext,
   extra?: Record<string, unknown>,
 ): void {
-  const resolved = resolveGatheredTripDates(ctx);
-  console.warn(`[chat-persist] dates ${step}`, {
-    startDate: ctx.startDate ?? null,
-    endDate: ctx.endDate ?? null,
-    tripDurationDays: ctx.tripDurationDays ?? null,
-    resolvedStartDate: resolved.startDate ?? null,
-    resolvedEndDate: resolved.endDate ?? null,
+  const requirements = assessTripRequirements(ctx);
+  const resolvedDates = resolveGatheredTripDates(ctx);
+  console.warn(`[chat-persist] ${step}`, {
+    gatheredTripContext: ctx,
+    missingFields: requirements.missing,
+    complete: requirements.complete,
+    resolvedStartDate: resolvedDates.startDate ?? null,
+    resolvedEndDate: resolvedDates.endDate ?? null,
     ...extra,
   });
 }
@@ -449,6 +450,82 @@ function sanitizeParsedDestination(destination: string): string {
     .replace(/^(?:go\s+to|going\s+to|to)\s+/i, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+const DESTINATION_COUNTRY_WORDS =
+  /\b(?:Australia|India|Japan|USA|U\.?S\.?A|UK|U\.?K|Thailand|Singapore|Dubai|France|Italy|Spain|Germany|Canada|Nepal|Sri Lanka|New Zealand|Indonesia|Vietnam|China|Korea|Malaysia|Philippines|UAE|Switzerland|Netherlands|Greece|Turkey|Egypt|Brazil|Mexico|Argentina|South Africa|Portugal|Ireland|Scotland|England|Wales|Hong Kong|Taiwan|Cambodia|Maldives|Bhutan|Bangladesh|Pakistan|Qatar|Saudi Arabia|Oman|Israel|Morocco|Kenya|Tanzania|Iceland|Norway|Sweden|Denmark|Finland|Belgium|Austria|Czech Republic|Hungary|Poland|Croatia|Romania|Russia|Peru|Colombia|Chile|Cuba|Jamaica|Bahamas|Fiji|Bali|Hawaii|Europe|Asia)\b/i;
+
+function parseTravelersFromText(text: string): number | undefined {
+  const numeric = text.match(
+    /(\d+)\s*(?:people|travelers|travellers|guests|pax|friends?|adults?)\b/i,
+  );
+  if (numeric) return Number(numeric[1]);
+  if (/\bme\s+and\s+my\s+friends?\b/i.test(text)) return 2;
+  if (/\bmy\s+friend\s+and\s+(?:i|me)\b/i.test(text)) return 2;
+  if (/\b(?:the\s+)?two\s+of\s+us\b/i.test(text)) return 2;
+  if (/\b(?:just\s+)?me\s+and\s+(?:a\s+)?friend\b/i.test(text)) return 2;
+  const weAre = text.match(/\bwe\s+are\s+(\d+)\b/i);
+  if (weAre) return Number(weAre[1]);
+  return undefined;
+}
+
+const WORD_NUMBER: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+function parseTripDurationDaysFromText(text: string): number | undefined {
+  const numeric = text.match(/\b(?:for\s+)?(\d{1,3})\s+days?\b/i);
+  if (numeric) return Math.max(1, Number(numeric[1]));
+  const word = text.match(
+    /\b(?:for\s+)?(one|two|three|four|five|six|seven|eight|nine|ten)\s+days?\b/i,
+  );
+  if (word) return WORD_NUMBER[word[1].toLowerCase()];
+  return undefined;
+}
+
+function parseDestinationFromText(text: string): string | undefined {
+  const destPatterns = [
+    /\bplanning\s+for\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+for\b|\s+from\b|,|\s+\d|\s+with\b|\s+trip\b|\.|$)/i,
+    /\bplanning\s+a\s+trip\s+to\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|\s+we\b|\.|$)/i,
+    /\b(?:are\s+)?planned\s+to\s+go(?:\s+to)?\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:,|\s+for\b|\s+with\b|\s+from\b|\s+and\b|\.|$)/i,
+    /\bplan(?:ning)?\s+to\s+go(?:\s+to)?\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\s+from\b|\s+and\b|\.|$)/i,
+    /\bgo\s+to\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:,|\s+for\b|\s+with\b|\s+from\b|\s+and\b|\.|$)/i,
+    /\b(?:going\s+to|travel\s+to|visit)\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\.|$)/i,
+    /\btrip\s+to\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\.|$)/i,
+    /(?:^|[,.]\s*)(?:to|in)\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\s+with\s+|\.|,|$)/i,
+  ];
+  for (const pattern of destPatterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const candidate = sanitizeParsedDestination(match[1].trim());
+    if (!isWeakDestinationLabel(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function parseStandaloneDestination(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (trimmed.length < 3 || trimmed.length > 56 || /\d/.test(trimmed)) return undefined;
+  if (/^(yes|no|ok|okay|sure|thanks|thank you|hi|hello|hey|please|ask)\b/i.test(trimmed)) {
+    return undefined;
+  }
+  if (DESTINATION_COUNTRY_WORDS.test(trimmed)) {
+    return sanitizeParsedDestination(trimmed.replace(/[?.!]+$/, ''));
+  }
+  const twoWord = trimmed.match(/^([A-Za-z][A-Za-z\s-]{1,30})\s+([A-Za-z][A-Za-z\s-]{2,24})$/);
+  if (twoWord && twoWord[2].length >= 4) {
+    return sanitizeParsedDestination(`${twoWord[1]} ${twoWord[2]}`.replace(/[?.!]+$/, ''));
+  }
+  return undefined;
 }
 
 function originsAlign(stated: string, candidate: string): boolean {
@@ -506,7 +583,7 @@ function parseLabeledTripFieldsFromText(text: string): GatheredTripContext {
   );
   if (travelersLabel) ctx.travelers = Number(travelersLabel[1]);
 
-  const budgetExplicit = text.match(/\b(?:we\s+have\s+)?(\d{1,3}(?:,\d{2,3})+|\d{5,7})\s*budget\b/i);
+  const budgetExplicit = text.match(/\b(?:we\s+have\s+)?(\d{1,3}(?:,\d{2,3})+|\d{5,7})\s*(?:of\s+)?budget\b/i);
   if (budgetExplicit) {
     ctx.budgetInr = Number(budgetExplicit[1].replace(/,/g, ''));
   }
@@ -544,29 +621,11 @@ export function parseTripContextFromText(text: string): GatheredTripContext {
   const dateRange = parseTripDateRangeFromText(text);
   if (dateRange.startDate) ctx.startDate = dateRange.startDate;
   if (dateRange.endDate) ctx.endDate = dateRange.endDate;
-  const destPatterns = [
-    /\bplanning\s+a\s+trip\s+to\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|\s+we\b|\.|$)/i,
-    /\bplan(?:ning)?\s+to\s+go(?:\s+to)?\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\s+from\b|\s+and\b|\.|$)/i,
-    /\b(?:going\s+to|travel\s+to|visit)\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\.|$)/i,
-    /\btrip\s+to\s+([A-Za-z][A-Za-z\s,]{2,50}?)(?:\s+with\b|\s+for\b|,|\s+we\b|\.|$)/i,
-    /(?:^|[,.]\s*)(?:to|in)\s+([A-Za-z][A-Za-z\s,]{2,40}?)(?:\s+in\s+|\s+for\s+|\s+with\s+|\.|,|$)/i,
-  ];
-  let destination: string | undefined;
-  for (const pattern of destPatterns) {
-    const match = text.match(pattern);
-    if (!match) continue;
-    const candidate = sanitizeParsedDestination(match[1].trim());
-    if (!isWeakDestinationLabel(candidate)) {
-      destination = candidate;
-      break;
-    }
-  }
+  const destination = parseDestinationFromText(text);
   if (destination) ctx.destination = destination;
 
-  const travelersMatch = text.match(
-    /(\d+)\s*(?:people|travelers|travellers|guests|pax|friends?|adults?)/i,
-  );
-  if (travelersMatch) ctx.travelers = Number(travelersMatch[1]);
+  const travelers = parseTravelersFromText(text);
+  if (travelers != null) ctx.travelers = travelers;
 
   const budgetInr = parseBudgetFromText(text, { travelers: ctx.travelers });
   if (budgetInr != null) ctx.budgetInr = budgetInr;
@@ -577,7 +636,11 @@ export function parseTripContextFromText(text: string): GatheredTripContext {
   if (originMatch) ctx.origin = originMatch[1].trim();
 
   const trimmed = text.trim();
-  if (!ctx.origin && trimmed.length > 2 && trimmed.length < 56) {
+  if (!ctx.destination && trimmed.length >= 3 && trimmed.length < 56) {
+    const standaloneDest = parseStandaloneDestination(trimmed);
+    if (standaloneDest) ctx.destination = standaloneDest;
+  }
+  if (!ctx.origin && !ctx.destination && trimmed.length > 2 && trimmed.length < 56) {
     const transportOnly = /^(flight|flights|train|trains|bus|buses|road|car)$/i.test(trimmed);
     const bareCity = trimmed.match(/^([A-Za-z][A-Za-z\s]{2,40}?)(?:\s+India)?$/i);
     if (!transportOnly && bareCity && !/\d{4,}/.test(trimmed)) {
@@ -718,10 +781,8 @@ export function parseTripContextFromText(text: string): GatheredTripContext {
     }
   }
 
-  const durationMatch = text.match(/\b(?:for\s+)?(\d{1,3})\s+days?\b/i);
-  if (durationMatch) {
-    ctx.tripDurationDays = Math.max(1, Number(durationMatch[1]));
-  }
+  const durationDays = parseTripDurationDaysFromText(text);
+  if (durationDays != null) ctx.tripDurationDays = durationDays;
   if (ctx.tripDurationDays && ctx.startDate && !ctx.endDate) {
     const start = new Date(`${ctx.startDate}T00:00:00Z`);
     if (!Number.isNaN(start.getTime())) {
@@ -801,6 +862,32 @@ export function gatherTripContextFromHistory(
     merged = mergeGatheredTripContext(merged, parsed);
   }
   return merged;
+}
+
+export function buildConversationGatheredContext(input: {
+  clientHistory: ChatHistoryMessage[];
+  authoritativeHistory: ChatHistoryMessage[];
+  currentMessage: string;
+  clientTripContext?: GatheredTripContext | null;
+}): GatheredTripContext {
+  const seen = new Set<string>();
+  const allMessages: ChatHistoryMessage[] = [];
+  for (const source of [input.clientHistory, input.authoritativeHistory]) {
+    for (const item of source) {
+      const key = `${item.role}:${item.content}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      allMessages.push(item);
+    }
+  }
+  const currentKey = `user:${input.currentMessage}`;
+  if (!seen.has(currentKey)) {
+    allMessages.push({ role: 'user', content: input.currentMessage });
+  }
+  return mergeGatheredTripContext(
+    gatherTripContextFromHistory(allMessages),
+    input.clientTripContext,
+  );
 }
 
 function computeTripEndDateFromStartAndDuration(
@@ -1104,6 +1191,16 @@ export function formatGatheredTripDetailsSection(
   if (ctx.budgetInr != null) known.push(`budget INR=${ctx.budgetInr}`);
   if (ctx.travelers != null) known.push(`travelers=${ctx.travelers}`);
 
+  const effectiveMissing = status.missing.filter((field) => {
+    if (field === 'destination' && ctx.destination?.trim()) return false;
+    if (field === 'origin city' && ctx.origin?.trim()) return false;
+    if (field === 'INR budget' && ctx.budgetInr != null) return false;
+    if (field === 'traveler count' && ctx.travelers != null) return false;
+    if (field === 'start date' && resolvedDates.startDate) return false;
+    if (field.includes('date') && resolvedDates.endDate) return false;
+    return true;
+  });
+
   const lines = ['[GATHERED TRIP DETAILS]'];
   lines.push(
     known.length
@@ -1111,25 +1208,22 @@ export function formatGatheredTripDetailsSection(
       : 'Known from this conversation: none yet.',
   );
   lines.push(
-    status.complete
+    status.complete || effectiveMissing.length === 0
       ? 'Still needed: none — all required trip fields are present.'
-      : `Still needed (ask at most ONE of these): ${status.missing.join(', ')}.`,
+      : `Still needed (ask at most ONE of these): ${effectiveMissing.join(', ')}.`,
   );
   if (ctx.origin?.trim()) {
     lines.push(
       'Origin is already set (from device location or the user). Do NOT ask for origin city unless they want to change it.',
     );
   }
-  if (status.complete) {
+  if (status.complete || effectiveMissing.length === 0) {
     lines.push(
-      'All required fields are present. The server auto-saves the trip when needed — do NOT ask the user to confirm creation. If [AUTO ACTION] ran, confirm it is saved and viewable in the Trips tab. Otherwise use update_trip/delete_trip for changes; never re-ask known fields.',
+      'All required fields are present. The server auto-saves the trip when needed — do NOT ask the user to confirm creation or ask for any Known fields again. If [AUTO ACTION] ran, confirm it is saved and viewable in the Trips tab.',
     );
   } else {
-    const missingForUser = status.missing.filter((field) => field !== 'origin city' || !ctx.origin?.trim());
     lines.push(
-      missingForUser.length
-        ? `Do not call create_trip until these are known. Ask for at most ONE: ${missingForUser.join(', ')}.`
-        : 'Do not call create_trip until required fields are known.',
+      `Do not call create_trip until these are known. Ask for at most ONE: ${effectiveMissing.join(', ')}.`,
     );
   }
   return lines.join('\n');
@@ -1431,6 +1525,12 @@ export async function maybeAutoPersistTrip(input: {
     const effects = result.effect ? [result.effect] : [];
     console.warn('[chat-persist] create_trip succeeded', {
       tripId: result.toolResult.tripId ?? result.effect?.tripId,
+      startDate: sharedArgs.startDate,
+      endDate: sharedArgs.endDate,
+      destination: sharedArgs.destination,
+      originCity: sharedArgs.originCity,
+      travelers: sharedArgs.travelers,
+      budgetInr: sharedArgs.budgetInr,
     });
     return {
       effects,
@@ -1616,6 +1716,68 @@ export function tripWasPersistedFromEffects(effects: ChatToolEffect[]): {
   return { persisted: false };
 }
 
+const INTERNAL_CONTEXT_LINE_RE =
+  /^(?:Known from this conversation|Still needed|Recent cross-conversation|Saved trip count|No prior cross-conversation|No saved trip matched|No active trip details|Do not call create_trip|Origin is already set|All required fields are present|The user has no saved trips|Current conversation persisted|destination=|origin=|start=|end=|duration=|budget INR=|travelers=|Recent saved trips|Trips matching this message|Active trip:|Use tools for saved-trip)/i;
+
+const INTERNAL_SECTION_HEADERS = [
+  'CHAT MEMORY',
+  'TRIP MEMORY',
+  'GATHERED TRIP DETAILS',
+  'CLIENT TRIP CONTEXT',
+  'AUTO ACTION',
+  'TOOLS',
+  'LIVE TRAVEL DATA',
+  'CONVERSATION SUMMARY',
+  'TRIP CONFIRMATION REQUIRED',
+  'TRIP CONFIRMATION',
+];
+
+function isInternalSectionHeader(line: string): boolean {
+  const trimmed = line.trim();
+  return INTERNAL_SECTION_HEADERS.some((header) =>
+    new RegExp(`^\\[${header.replace(/ /g, '\\s+')}\\]`, 'i').test(trimmed),
+  );
+}
+
+function isInternalContextLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (INTERNAL_CONTEXT_LINE_RE.test(trimmed)) return true;
+  if (/^\[(?:CHAT|TRIP|GATHERED|CLIENT|AUTO|TOOLS|LIVE|CONVERSATION)/i.test(trimmed)) {
+    return true;
+  }
+  if (/^[•\-*]\s/.test(trimmed) && /\b(user:|assistant:|trip to|saved trip)\b/i.test(trimmed)) {
+    return true;
+  }
+  if (/\buser:\s*.+\|\s*assistant:/i.test(trimmed)) return true;
+  return false;
+}
+
+/** Strip internal system/memory blocks the model sometimes echoes into chat. */
+export function stripInternalChatContextFromReply(reply: string): string {
+  const kept: string[] = [];
+  let inInternalSection = false;
+
+  for (const line of reply.split('\n')) {
+    if (isInternalSectionHeader(line)) {
+      inInternalSection = true;
+      continue;
+    }
+    if (inInternalSection) {
+      if (isInternalContextLine(line)) continue;
+      inInternalSection = false;
+    }
+    if (!isInternalContextLine(line)) {
+      kept.push(line);
+    }
+  }
+
+  return kept
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** Remove raw tool/function markup the model sometimes prints as plain text. */
 export function stripRawToolMarkupFromReply(reply: string): string {
   let text = reply.trim();
@@ -1626,7 +1788,7 @@ export function stripRawToolMarkupFromReply(reply: string): string {
     /this function call failed\.?\s*(?:i need|i still need|please provide)[\s\S]*$/i,
     '',
   ).trim();
-  return text;
+  return stripInternalChatContextFromReply(text);
 }
 
 const BROKEN_PERSISTED_REPLY_RE =
@@ -1911,8 +2073,9 @@ export async function findChatRequestReplay(input: {
     ? assistant.metadata!.toolEffects!
     : [];
   const { tripId } = tripWasPersistedFromEffects(effects);
+  const destination = effects.find((e) => e.type === 'create_trip' || e.type === 'update_trip')?.summary;
   return {
-    reply: assistant.content.trim(),
+    reply: polishAssistantTripReply(assistant.content.trim(), effects, destination),
     effects,
     connectedTripId: assistant.metadata?.tripId ?? tripId,
     openTripId: assistant.metadata?.openTripId ?? tripId,

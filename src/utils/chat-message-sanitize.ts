@@ -9,6 +9,68 @@ function hasPersistedTripEffect(effects?: ChatToolEffect[]): boolean {
   )
 }
 
+const INTERNAL_CONTEXT_LINE_RE =
+  /^(?:Known from this conversation|Still needed|Recent cross-conversation|Saved trip count|No prior cross-conversation|No saved trip matched|No active trip details|Do not call create_trip|Origin is already set|All required fields are present|The user has no saved trips|Current conversation persisted|destination=|origin=|start=|end=|duration=|budget INR=|travelers=|Recent saved trips|Trips matching this message|Active trip:|Use tools for saved-trip)/i
+
+const INTERNAL_SECTION_HEADERS = [
+  'CHAT MEMORY',
+  'TRIP MEMORY',
+  'GATHERED TRIP DETAILS',
+  'CLIENT TRIP CONTEXT',
+  'AUTO ACTION',
+  'TOOLS',
+  'LIVE TRAVEL DATA',
+  'CONVERSATION SUMMARY',
+  'TRIP CONFIRMATION REQUIRED',
+  'TRIP CONFIRMATION',
+]
+
+function isInternalSectionHeader(line: string): boolean {
+  const trimmed = line.trim()
+  return INTERNAL_SECTION_HEADERS.some((header) =>
+    new RegExp(`^\\[${header.replace(/ /g, '\\s+')}\\]`, 'i').test(trimmed),
+  )
+}
+
+function isInternalContextLine(line: string): boolean {
+  const trimmed = line.trim()
+  if (!trimmed) return false
+  if (INTERNAL_CONTEXT_LINE_RE.test(trimmed)) return true
+  if (/^\[(?:CHAT|TRIP|GATHERED|CLIENT|AUTO|TOOLS|LIVE|CONVERSATION)/i.test(trimmed)) {
+    return true
+  }
+  if (/^[•\-*]\s/.test(trimmed) && /\b(user:|assistant:|trip to|saved trip)\b/i.test(trimmed)) {
+    return true
+  }
+  if (/\buser:\s*.+\|\s*assistant:/i.test(trimmed)) return true
+  return false
+}
+
+/** Strip internal system/memory blocks the model sometimes echoes into chat. */
+export function stripInternalChatContextFromReply(reply: string): string {
+  const kept: string[] = []
+  let inInternalSection = false
+
+  for (const line of reply.split('\n')) {
+    if (isInternalSectionHeader(line)) {
+      inInternalSection = true
+      continue
+    }
+    if (inInternalSection) {
+      if (isInternalContextLine(line)) continue
+      inInternalSection = false
+    }
+    if (!isInternalContextLine(line)) {
+      kept.push(line)
+    }
+  }
+
+  return kept
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 /** Remove raw tool/function markup the model sometimes prints as plain text. */
 export function stripRawToolMarkupFromReply(reply: string): string {
   let text = reply.trim()
@@ -21,7 +83,7 @@ export function stripRawToolMarkupFromReply(reply: string): string {
       '',
     )
     .trim()
-  return text
+  return stripInternalChatContextFromReply(text)
 }
 
 const BROKEN_PERSISTED_REPLY_RE =
