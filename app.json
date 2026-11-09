@@ -36,7 +36,9 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -95,16 +97,21 @@
           "microphonePermission": "Allow microphone for voice trip planning."
         }
       ],
-      "@react-native-community/datetimepicker",
-      "expo-build-properties"
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow location access to set your origin city for flights and transport."
+        }
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
-      "enabled": true,
+      "enabled": false,
       "url": "https://u.expo.dev/ce2c8b13-cf53-452c-8df1-38ce3c720cb4",
-      "checkAutomatically": "ON_LOAD",
+      "checkAutomatically": "ON_ERROR_RECOVERY",
       "fallbackToCacheTimeout": 0
     },
     "experiments": {

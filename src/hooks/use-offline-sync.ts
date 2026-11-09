@@ -38,5 +38,7 @@ export function useIsOffline(): boolean {
   const netInfo = NetInfo.useNetInfo();
   const syncEnabled = profile?.offline_sync_enabled ?? true;
   if (!syncEnabled) return false;
-  return netInfo.isConnected === false || netInfo.isInternetReachable === false;
+  // Only explicit disconnect = offline. isInternetReachable is often false/null while
+  // the device can still reach the network (false offline banner on Android).
+  return netInfo.isConnected === false;
 }

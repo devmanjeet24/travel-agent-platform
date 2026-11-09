@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { RequireSession } from '@/components/auth/require-session'
 import { OfflineBanner } from '@/components/ui/OfflineBanner'
 import { brand, spacing } from '@/constants/design'
+import { useKeyboardBottomInset } from '@/hooks/use-keyboard-bottom-inset'
 import { useResponsive } from '@/hooks/use-responsive'
 import { TAB_BAR_CONTENT_HEIGHT } from '@/lib/layout-parity'
 import { radii, tabBarShadow } from '@/lib/ui-styles'
@@ -37,10 +38,19 @@ function TabIcon({
 
 /** Full-width tab bar fixed to bottom — custom row layout for reliable Android rendering. */
 function FixedTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  const keyboardInset = useKeyboardBottomInset()
   const { tabBar, tabBarBorder, isDark, colors } = useThemedStyles()
   const { isSmallPhone } = useResponsive()
   const { width: screenWidth } = useWindowDimensions()
   const insets = useSafeAreaInsets()
+  const focusedRoute = state.routes[state.index]
+  const { tabBarHideOnKeyboard = false } = descriptors[focusedRoute.key].options
+  const isChatTab = focusedRoute.name === 'chat'
+
+  if (tabBarHideOnKeyboard && keyboardInset > 0) {
+    return null
+  }
+
   const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 0)
   const inactiveColor = isDark ? '#94A3B8' : colors.icon
   const activeColor = brand.primary
@@ -51,12 +61,17 @@ function FixedTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     <View
       style={[
         styles.fixedShell,
-        tabBarShadow(isDark),
+        isChatTab ? styles.fixedShellChatConnected : null,
+        isChatTab ? null : tabBarShadow(isDark),
         {
           width: screenWidth,
           backgroundColor: tabBar,
           borderColor: tabBarBorder,
+          borderTopWidth: isChatTab ? 0 : 1,
+          borderTopLeftRadius: isChatTab ? 0 : radii.xl,
+          borderTopRightRadius: isChatTab ? 0 : radii.xl,
           paddingBottom: bottomInset,
+          ...(isChatTab && Platform.OS === 'android' ? { elevation: 0 } : {}),
         },
       ]}
     >
@@ -208,6 +223,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     overflow: 'hidden',
     elevation: 0,
+  },
+  fixedShellChatConnected: {
+    overflow: 'visible',
   },
   tabRow: {
     flexDirection: 'row',

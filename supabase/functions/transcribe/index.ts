@@ -1,5 +1,6 @@
 import { handleOptions, jsonResponse } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { fetchGroqWith429Retry } from '../_shared/groq-fetch.ts';
 
 const GROQ_TRANSCRIBE = 'https://api.groq.com/openai/v1/audio/transcriptions';
 
@@ -45,15 +46,17 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: 'Audio file required (field: file)' }, 400);
     }
 
-    const groqForm = new FormData();
-    groqForm.append('file', audioFile, audioFile.name);
-    groqForm.append('model', 'whisper-large-v3-turbo');
-    groqForm.append('response_format', 'json');
-
-    const res = await fetch(GROQ_TRANSCRIBE, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${groqKey}` },
-      body: groqForm,
+    const file = audioFile;
+    const res = await fetchGroqWith429Retry(GROQ_TRANSCRIBE, () => {
+      const groqForm = new FormData();
+      groqForm.append('file', file, file.name);
+      groqForm.append('model', 'whisper-large-v3-turbo');
+      groqForm.append('response_format', 'json');
+      return {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${groqKey}` },
+        body: groqForm,
+      };
     });
 
     const data = await res.json();

@@ -12,7 +12,6 @@ import {
   geocodeNearDestination,
   isPlaceholderTripImageUrl,
   searchCitySuggestions,
-  searchFlightsEstimate,
   searchHotelsOsm,
   searchPlaces,
 } from '../_shared/travel-apis.ts';
@@ -456,21 +455,31 @@ Deno.serve(async (req) => {
       }
 
       const token = duffelAccessToken();
-      const result = token
-        ? await searchFlightsDuffel({
-          originGeo,
-          destGeo,
-          departDate: body.departDate,
-          travelers: body.travelers ?? 1,
-          accessToken: token,
-        })
-        : await searchFlightsEstimate({
-          originGeo,
-          destGeo,
-          departDate: body.departDate,
-          budgetInr,
+      if (!token) {
+        if (body.tripId) {
+          const { error: deleteError } = await supabase
+            .from('trip_flights')
+            .delete()
+            .eq('trip_id', body.tripId);
+          if (deleteError) {
+            return jsonResponse({ error: deleteError.message }, 500);
+          }
+        }
+        return jsonResponse({
+          flights: [],
+          error: 'Live flight search is unavailable (DUFFEL_ACCESS_TOKEN is not configured on the server).',
+          source: 'unavailable',
+          live: false,
         });
-      const source = token ? 'duffel' : 'estimate';
+      }
+
+      const result = await searchFlightsDuffel({
+        originGeo,
+        destGeo,
+        departDate: body.departDate,
+        travelers: body.travelers ?? 1,
+        accessToken: token,
+      });
 
       if (body.tripId) {
         const { error: deleteError } = await supabase
@@ -502,8 +511,8 @@ Deno.serve(async (req) => {
       return jsonResponse({
         flights: result.offers,
         error: result.error ?? null,
-        source,
-        live: source === 'duffel',
+        source: 'duffel',
+        live: result.offers.length > 0,
       });
     }
 

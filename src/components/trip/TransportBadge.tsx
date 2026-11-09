@@ -26,7 +26,7 @@ export function TransportBadge({
       <View className="flex-row items-center flex-wrap gap-2">
         <View className="flex-row items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
           <Icon size={14} color={brand.primaryDark} />
-          <Text className={`${theme.text} text-xs font-semibold capitalize`}>
+          <Text className="text-slate-800 dark:text-slate-100 text-xs font-semibold capitalize">
             {label}
           </Text>
         </View>

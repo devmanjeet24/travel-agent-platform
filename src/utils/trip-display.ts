@@ -181,10 +181,8 @@ export function tripCardLabels(trip: TripRow) {
     destination && isGeneratedTripTitle(title, destination)
       ? destination
       : title || destination || 'Trip'
-  const subtitle =
-    destination && destination.toLowerCase() !== displayTitle.toLowerCase()
-      ? destination
-      : formatTripDates(trip.start_date, trip.end_date)
+  // Location row: destination only (dates use the calendar row on ItineraryCard).
+  const subtitle = destination || 'Destination pending'
 
   return { displayTitle, subtitle }
 }

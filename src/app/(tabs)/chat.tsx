@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
+  RefreshControl,
+  StyleSheet,
   Text,
   View,
 } from 'react-native'
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import * as DocumentPicker from 'expo-document-picker'
 import { Paperclip, Sparkles, X } from 'lucide-react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-
 import { ChatComposer } from '@/components/chat/ChatComposer'
 import { ChatHeader } from '@/components/chat/ChatHeader'
+import { OriginCityBar } from '@/components/chat/OriginCityBar'
 import { ChatBubble } from '@/components/ui/ChatBubble'
 import { brand, spacing } from '@/constants/design'
 import { useResponsive } from '@/hooks/use-responsive'
@@ -30,14 +30,33 @@ import {
   fetchConversationMessages,
   fetchLatestConversation,
 } from '@/services/chat/chat-db'
-import { loadChatSessionCache, saveChatSessionCache } from '@/lib/chat-offline-cache'
+import {
+  clearLatestChatSessionPointer,
+  loadChatSessionCache,
+  saveChatSessionCache,
+} from '@/lib/chat-offline-cache'
 import { useIsOffline } from '@/hooks/use-offline-sync'
-import { parseTripContextFromMessage } from '@/utils/trip-context-parse'
+import { useDeviceOriginCity } from '@/hooks/use-device-origin-city'
+import { loadStoredOriginCity } from '@/lib/origin-city-storage'
 import { deriveChatTitle } from '@/utils/chat-title'
 import type { ChatAttachment, ChatHistoryItem, ChatMessage } from '@/services/chat'
 import { uploadChatAttachment } from '@/services/travel/travel-api'
 import { useAuth } from '@/providers/auth-provider'
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
+import { notificationKeys } from '@/hooks/notifications/use-notifications-query'
+import { tripKeys } from '@/services/trips/trip-keys'
+import {
+  chatEffectsMutateTrips,
+  primaryTripIdFromEffects,
+  reconcileClientTripPersistReply,
+  stripRawToolMarkupFromReply,
+  TRIP_SAVE_FAILURE_REPLY,
+  TRIP_DELETE_FAILURE_REPLY,
+} from '@/utils/chat-trip-sync'
+import { buildTripContextForChat } from '@/utils/build-trip-context'
+import { fetchTripById } from '@/services/trips/trip-api'
+import type { TripRow } from '@/types/database'
 
 const DEFAULT_HEADER_TITLE = 'AI Travel Agent'
 
@@ -47,6 +66,9 @@ function formatTime(date = new Date()) {
 
 const MAX_CLIENT_HISTORY_TURNS = 4
 const MAX_CLIENT_HISTORY_CHARS = 600
+
+/** Visual gap between the composer block and the top of the software keyboard. */
+const CHAT_KEYBOARD_GAP = spacing.sm + 2
 
 function toHistory(messages: ChatMessage[]): ChatHistoryItem[] {
   return messages
@@ -66,8 +88,7 @@ export default function ChatScreen() {
   const router = useRouter()
   const theme = useThemedStyles()
   const { user } = useAuth()
-  const insets = useSafeAreaInsets()
-  const tabBarHeight = useBottomTabBarHeight()
+  const queryClient = useQueryClient()
   const { horizontalPadding } = useResponsive()
   const tabInsets = useTabScreenInsets()
   const params = useLocalSearchParams<{ tripId?: string; conversationId?: string }>()
@@ -75,6 +96,12 @@ export default function ChatScreen() {
   const listRef = useRef<FlatList<ChatMessage>>(null)
   const speakReplyRef = useRef<(reply: string) => Promise<void>>(async () => {})
   const shouldSpeakRef = useRef(false)
+  /** Authoritative conversation target for sends; updated synchronously on New Chat. */
+  const conversationIdRef = useRef<string | undefined>(params.conversationId)
+  /** True after New Chat until the next outbound message (ref avoids reload races). */
+  const isFreshChatRef = useRef(false)
+  /** Bumped on New Chat so in-flight history loads cannot restore the previous thread. */
+  const chatLoadGenerationRef = useRef(0)
 
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -84,16 +111,38 @@ export default function ChatScreen() {
   const [conversationId, setConversationId] = useState<string | undefined>(params.conversationId)
   const [conversationTitle, setConversationTitle] = useState(DEFAULT_HEADER_TITLE)
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
+  const [originBarDismissed, setOriginBarDismissed] = useState(false)
+
+  const setActiveConversationId = useCallback((id: string | undefined) => {
+    conversationIdRef.current = id
+    setConversationId(id)
+  }, [])
+
+  useEffect(() => {
+    if (!params.conversationId) return
+    isFreshChatRef.current = false
+    setActiveConversationId(params.conversationId)
+  }, [params.conversationId, setActiveConversationId])
+  const {
+    originCity,
+    setOriginCity,
+    status: originStatus,
+    needsManualEntry,
+    retryDetection,
+    ensureOriginCity,
+    isDetecting,
+  } = useDeviceOriginCity()
 
   const keyboardInset = useKeyboardBottomInset()
   const isKeyboardOpen = keyboardInset > 0
-  const composerBottomPad =
-    Platform.OS === 'android'
-      ? isKeyboardOpen
-        ? Math.max(keyboardInset, insets.bottom) + spacing.sm
-        : tabInsets.composerBottomPadding
-      : tabInsets.composerBottomPadding
-  const keyboardOffset = Platform.OS === 'ios' ? tabBarHeight + insets.top : 0
+
+  const tabBarClearance = tabInsets.tabBarHeight
+  const footerSurfaceColor = theme.tabBar
+  const safeBottomInset = Math.max(tabInsets.insets.bottom, Platform.OS === 'android' ? spacing.sm : 0)
+  const composerShellPadBottom = isKeyboardOpen
+    ? keyboardInset + CHAT_KEYBOARD_GAP + safeBottomInset
+    : tabBarClearance
+
   const listPadX = horizontalPadding
 
   const scrollToEnd = useCallback(() => {
@@ -106,6 +155,17 @@ export default function ChatScreen() {
     async (text: string, options?: { speakReply?: boolean }) => {
       const trimmed = text.trim()
       if ((!trimmed && !pendingAttachments.length) || isSending) return
+
+      if (isOffline) {
+        setError(
+          'You are offline. Connect to the internet to chat with the agent and save trips to your account.',
+        )
+        return
+      }
+
+      const storedOrigin = (await loadStoredOriginCity())?.trim() ?? ''
+      const resolvedOriginCity =
+        originCity.trim() || storedOrigin || (await ensureOriginCity())
 
       if (options?.speakReply) shouldSpeakRef.current = true
 
@@ -125,11 +185,18 @@ export default function ChatScreen() {
         attachments: [...pendingAttachments],
       }
 
-      if (!conversationId && trimmed) {
+      const startingFreshChat = isFreshChatRef.current
+      if (startingFreshChat) isFreshChatRef.current = false
+
+      const outboundConversationId = startingFreshChat
+        ? undefined
+        : conversationIdRef.current
+
+      if (!outboundConversationId && trimmed) {
         setConversationTitle(deriveChatTitle(trimmed))
       }
 
-      const history = toHistory(messages)
+      const history = startingFreshChat ? [] : toHistory(messages)
       const assistantId = `assistant-${Date.now()}`
       const attachmentsToSend = [...pendingAttachments]
 
@@ -148,37 +215,113 @@ export default function ChatScreen() {
       setPendingAttachments([])
       scrollToEnd()
 
-      const tripContext = parseTripContextFromMessage(trimmed)
+      const tripContext = buildTripContextForChat({
+        message: trimmed,
+        originCity: resolvedOriginCity,
+        history,
+        conversationId: outboundConversationId,
+      })
+
+      if (__DEV__) {
+        console.warn('[chat-persist] client tripContext send', {
+          startDate: tripContext?.startDate ?? null,
+          endDate: tripContext?.endDate ?? null,
+          tripDurationDays: tripContext?.tripDurationDays ?? null,
+          origin: tripContext?.origin ?? null,
+          destination: tripContext?.destination ?? null,
+        })
+      }
 
       await sendChatWithStream(
         {
           message: (trimmed || 'Please review my attachments for trip planning.') + attachmentNote,
           history,
-          conversationId,
+          conversationId: outboundConversationId,
           tripId: params.tripId,
           attachments: attachmentsToSend,
-          tripContext: Object.keys(tripContext).length ? tripContext : undefined,
+          tripContext,
         },
         {
           onDelta: (delta) => {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, content: m.content + delta, streaming: true }
+                  ? {
+                      ...m,
+                      content: stripRawToolMarkupFromReply(m.content + delta),
+                      streaming: true,
+                    }
                   : m,
               ),
             )
             scrollToEnd()
           },
-          onDone: ({ reply, conversationId: newConvId, title, warning: w, openTripId }) => {
-            const resolvedConvId = newConvId ?? conversationId
-            if (newConvId) setConversationId(newConvId)
+          onDone: async ({ reply, conversationId: newConvId, title, warning: w, openTripId, effects }) => {
+            const resolvedConvId = newConvId ?? conversationIdRef.current
+            if (newConvId) setActiveConversationId(newConvId)
             const resolvedTitle = title ?? conversationTitle
             if (title) setConversationTitle(title)
             if (w) setWarning(w)
+
+            let resolvedReply = reconcileClientTripPersistReply(
+              reply,
+              effects,
+              tripContext?.destination,
+            )
+            let resolvedOpenTripId = openTripId
+            const persistedTripId = primaryTripIdFromEffects(effects)
+
+            if (chatEffectsMutateTrips(effects)) {
+              await queryClient.refetchQueries({ queryKey: tripKeys.all })
+              void queryClient.invalidateQueries({ queryKey: notificationKeys.all })
+            } else if (__DEV__ && tripContext?.destination) {
+              console.warn('[chat-persist] no trip effects in response', {
+                destination: tripContext.destination,
+                origin: tripContext.origin,
+                startDate: tripContext.startDate,
+                endDate: tripContext.endDate,
+                effects: effects?.map((e) => e.type),
+              })
+            }
+
+            if (persistedTripId) {
+              const trip =
+                (await fetchTripById(persistedTripId)) ??
+                queryClient
+                  .getQueryData<TripRow[]>(tripKeys.list())
+                  ?.find((t) => t.id === persistedTripId)
+              if (!trip) {
+                resolvedReply = TRIP_SAVE_FAILURE_REPLY
+                resolvedOpenTripId = undefined
+                setError('Trip could not be saved. Please try again.')
+              }
+            }
+
+            const deletedTripId = effects?.find(
+              (e) => e.type === 'delete_trip' && e.tripId,
+            )?.tripId
+            if (deletedTripId) {
+              const stillExists = await fetchTripById(deletedTripId)
+              if (stillExists) {
+                resolvedReply = TRIP_DELETE_FAILURE_REPLY
+                setError('Trip could not be deleted. Please try again.')
+              }
+            }
+
+            const deletedActiveTrip = effects?.some(
+              (effect) =>
+                effect.type === 'delete_trip' &&
+                params.tripId &&
+                effect.tripId === params.tripId,
+            )
+            if (deletedActiveTrip) {
+              router.replace('/(tabs)/chat' as never)
+            }
             setMessages((prev) => {
               const next = prev.map((m) =>
-                m.id === assistantId ? { ...m, content: reply, streaming: false } : m,
+                m.id === assistantId
+                  ? { ...m, content: resolvedReply, streaming: false }
+                  : m,
               )
               if (resolvedConvId) {
                 void saveChatSessionCache({
@@ -193,17 +336,37 @@ export default function ChatScreen() {
             })
             setIsSending(false)
             scrollToEnd()
-            if (shouldSpeakRef.current && reply.trim()) {
+            if (shouldSpeakRef.current && resolvedReply.trim()) {
               shouldSpeakRef.current = false
-              void speakReplyRef.current(reply)
+              void speakReplyRef.current(resolvedReply)
             }
-            if (openTripId) {
-              router.push(`/trip/${openTripId}` as never)
+            if (resolvedOpenTripId && !deletedActiveTrip) {
+              router.push('/(tabs)/trips' as never)
             }
           },
           onError: (msg) => {
-            setError(msg)
-            setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+            const isRateLimit =
+              /rate limit|429|tokens per minute|briefly busy|tool call validation/i.test(
+                msg,
+              ) || /try again in [\d.]+s/i.test(msg)
+            if (isRateLimit) {
+              setWarning('Still planning your trip — one moment, then try sending again.')
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        content:
+                          'Still working on your trip plan — please wait a moment and tap send again.',
+                        streaming: false,
+                      }
+                    : m,
+                ),
+              )
+            } else {
+              setError(msg)
+              setMessages((prev) => prev.filter((m) => m.id !== assistantId))
+            }
             setIsSending(false)
             shouldSpeakRef.current = false
           },
@@ -212,13 +375,18 @@ export default function ChatScreen() {
       )
     },
     [
-      conversationId,
+      setActiveConversationId,
       isSending,
       messages,
+      isOffline,
       params.tripId,
+      ensureOriginCity,
+      originCity,
       pendingAttachments,
+      queryClient,
       router,
       scrollToEnd,
+      conversationTitle,
     ],
   )
 
@@ -233,71 +401,109 @@ export default function ChatScreen() {
     speakReplyRef.current = voice.speakReply
   }, [voice.speakReply])
 
+  const reloadChatHistory = useCallback(async () => {
+    if (isFreshChatRef.current) return
+
+    const loadGen = chatLoadGenerationRef.current
+
+    const cached = await loadChatSessionCache({
+      conversationId: params.conversationId,
+      tripId: params.tripId,
+    })
+    if (loadGen !== chatLoadGenerationRef.current) return
+    if (isFreshChatRef.current) return
+
+    if (cached) {
+      setMessages(
+        cached.messages.map((m) =>
+          m.role === 'assistant'
+            ? { ...m, content: stripRawToolMarkupFromReply(m.content) }
+            : m,
+        ),
+      )
+      setActiveConversationId(cached.conversationId)
+      setConversationTitle(cached.title)
+    }
+
+    if (isOffline) return
+
+    const convId =
+      params.conversationId ??
+      cached?.conversationId ??
+      (await fetchLatestConversation(params.tripId))?.id
+    if (loadGen !== chatLoadGenerationRef.current) return
+    if (isFreshChatRef.current) return
+    if (!convId) return
+
+    const [conv, rows] = await Promise.all([
+      fetchConversationById(convId),
+      fetchConversationMessages(convId),
+    ])
+    if (loadGen !== chatLoadGenerationRef.current) return
+    if (isFreshChatRef.current) return
+
+    const nextMessages = rows
+      .filter((r) => r.role === 'user' || r.role === 'assistant')
+      .map((r) => ({
+        id: r.id,
+        role: r.role === 'assistant' ? ('assistant' as const) : ('user' as const),
+        content:
+          r.role === 'assistant'
+            ? stripRawToolMarkupFromReply(r.content)
+            : r.content,
+        timestamp: formatTime(new Date(r.created_at)),
+        attachments: r.attachments,
+      }))
+    setMessages(nextMessages)
+    setActiveConversationId(convId)
+    const title = conv?.title ?? DEFAULT_HEADER_TITLE
+    if (conv?.title) setConversationTitle(title)
+
+    await saveChatSessionCache({
+      conversationId: convId,
+      title,
+      messages: nextMessages,
+      tripId: params.tripId,
+      updatedAt: new Date().toISOString(),
+    })
+  }, [isOffline, params.conversationId, params.tripId, setActiveConversationId])
+
+  const { refreshing, onRefresh } = usePullToRefresh(async () => {
+    try {
+      setError(null)
+      await reloadChatHistory()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not refresh chat')
+    }
+  })
+
   useEffect(() => {
-    void (async () => {
-      const cached = await loadChatSessionCache({
-        conversationId: params.conversationId,
-        tripId: params.tripId,
-      })
-      if (cached) {
-        setMessages(cached.messages)
-        setConversationId(cached.conversationId)
-        setConversationTitle(cached.title)
-      }
+    void reloadChatHistory().catch((e) => {
+      setError(e instanceof Error ? e.message : 'Could not load history')
+    })
+  }, [reloadChatHistory, user?.id])
 
-      if (isOffline) return
-
-      try {
-        const convId =
-          params.conversationId ??
-          cached?.conversationId ??
-          (await fetchLatestConversation(params.tripId))?.id
-        if (!convId) return
-
-        const [conv, rows] = await Promise.all([
-          fetchConversationById(convId),
-          fetchConversationMessages(convId),
-        ])
-        const nextMessages = rows
-          .filter((r) => r.role === 'user' || r.role === 'assistant')
-          .map((r) => ({
-            id: r.id,
-            role: r.role === 'assistant' ? ('assistant' as const) : ('user' as const),
-            content: r.content,
-            timestamp: formatTime(new Date(r.created_at)),
-            attachments: r.attachments,
-          }))
-        setMessages(nextMessages)
-        setConversationId(convId)
-        const title = conv?.title ?? DEFAULT_HEADER_TITLE
-        if (conv?.title) setConversationTitle(title)
-
-        await saveChatSessionCache({
-          conversationId: convId,
-          title,
-          messages: nextMessages,
-          tripId: params.tripId,
-          updatedAt: new Date().toISOString(),
-        })
-      } catch (e) {
-        if (!cached) {
-          setError(e instanceof Error ? e.message : 'Could not load history')
-        }
-      }
-    })()
-  }, [params.conversationId, params.tripId, user?.id, isOffline])
+  useEffect(() => {
+    if (keyboardInset > 0) {
+      scrollToEnd()
+    }
+  }, [keyboardInset, scrollToEnd])
 
   const handleNewChat = useCallback(async () => {
-    await voice.interrupt()
+    chatLoadGenerationRef.current += 1
+    isFreshChatRef.current = true
+    conversationIdRef.current = undefined
     setMessages([])
-    setConversationId(undefined)
+    setActiveConversationId(undefined)
     setConversationTitle(DEFAULT_HEADER_TITLE)
     setInput('')
     setPendingAttachments([])
     setError(null)
     setWarning(null)
     setIsSending(false)
-  }, [voice])
+    void clearLatestChatSessionPointer(params.tripId)
+    await voice.interrupt()
+  }, [params.tripId, setActiveConversationId, voice])
 
   const pickAttachment = async () => {
     if (!user) {
@@ -335,12 +541,7 @@ export default function ChatScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={keyboardOffset}
-        enabled={Platform.OS === 'ios'}
-      >
+      <View style={{ flex: 1 }}>
         <ChatHeader
           title={conversationTitle}
           subtitle={
@@ -426,40 +627,47 @@ export default function ChatScreen() {
           </View>
         ) : null}
 
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          style={{ flex: 1 }}
-          contentContainerStyle={{
-            paddingHorizontal: listPadX,
-            paddingTop: 16,
-            paddingBottom:
-              16 +
-              (Platform.OS === 'android' && isKeyboardOpen
-                ? keyboardInset + 72
-                : tabInsets.composerBottomPadding * 0.35),
-            flexGrow: 1,
-          }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={scrollToEnd}
-          ListEmptyComponent={
-            <View style={{ alignItems: 'center', paddingTop: 56, paddingHorizontal: 28 }}>
+        <View style={{ flex: 1 }}>
+          <FlatList
+            ref={listRef}
+            data={messages}
+            keyExtractor={(item) => item.id}
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              paddingHorizontal: listPadX,
+              paddingTop: spacing.md,
+              paddingBottom: spacing.lg,
+              flexGrow: 1,
+            }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            automaticallyAdjustKeyboardInsets={false}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={brand.primaryDark}
+                colors={[brand.primaryDark]}
+              />
+            }
+            onContentSizeChange={scrollToEnd}
+            ListEmptyComponent={
+            <View style={{ alignItems: 'center', paddingTop: 48, paddingHorizontal: spacing.xl }}>
               <View
                 style={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: 36,
+                  width: 68,
+                  height: 68,
+                  borderRadius: 34,
                   backgroundColor: theme.colors.aiMuted,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  marginBottom: 20,
+                  marginBottom: spacing.lg,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
                 }}
               >
-                <Sparkles size={32} color={brand.primaryDark} />
+                <Sparkles size={30} color={theme.isDark ? brand.ai : brand.primaryDark} />
               </View>
               <Text
                 style={{
@@ -476,29 +684,36 @@ export default function ChatScreen() {
                 style={{
                   color: theme.colors.textMuted,
                   textAlign: 'center',
-                  marginTop: 10,
-                  lineHeight: 24,
+                  marginTop: spacing.sm + 2,
+                  lineHeight: 22,
                   fontSize: 15,
+                  maxWidth: 300,
                 }}
               >
-                Ask about destinations, budgets, or day-by-day plans. Tap the mic for a voice
-                conversation with spoken replies.
+                Ask about destinations, budgets, or day-by-day plans. Tap the mic for voice chat
+                with spoken replies.
               </Text>
               <Pressable
                 onPress={() =>
                   setInput('5 days in Goa in August, 2 people, ₹50000 budget, from Delhi.')
                 }
-                style={{
-                  marginTop: 20,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
+                style={({ pressed }) => ({
+                  marginTop: spacing.lg,
+                  paddingHorizontal: spacing.lg,
+                  paddingVertical: spacing.md,
                   borderRadius: radii.pill,
-                  backgroundColor: theme.colors.card,
+                  backgroundColor: pressed ? theme.colors.muted : theme.colors.card,
                   borderWidth: 1,
                   borderColor: theme.colors.border,
-                }}
+                })}
               >
-                <Text style={{ color: brand.primaryDark, fontSize: 14, fontWeight: '600' }}>
+                <Text
+                  style={{
+                    color: theme.isDark ? '#93C5FD' : brand.primaryDark,
+                    fontSize: 14,
+                    fontWeight: '600',
+                  }}
+                >
                   Try a sample prompt
                 </Text>
               </Pressable>
@@ -530,21 +745,46 @@ export default function ChatScreen() {
               )}
             </View>
           )}
-        />
+          />
 
-        <ChatComposer
-          input={input}
-          onChangeText={setInput}
-          onSend={() => void sendMessage(input)}
-          onPickAttachment={() => void pickAttachment()}
-          onToggleVoice={() => void voice.toggleRecording()}
-          onStopVoice={() => void stopSpeaking().then(() => voice.interrupt())}
-          canSend={canSend}
-          isSending={isSending}
-          voicePhase={voice.phase}
-          paddingBottom={composerBottomPad}
-        />
-      </KeyboardAvoidingView>
+          <View
+            style={{
+              backgroundColor: footerSurfaceColor,
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderTopColor: theme.tabBarBorder,
+              paddingBottom: composerShellPadBottom,
+            }}
+          >
+            {!originBarDismissed ? (
+              <OriginCityBar
+                originCity={originCity}
+                onChangeOriginCity={setOriginCity}
+                status={originStatus}
+                needsManualEntry={needsManualEntry}
+                isDetecting={isDetecting}
+                onRetryDetection={() => void retryDetection()}
+                onDismiss={() => setOriginBarDismissed(true)}
+                horizontalPadding={listPadX}
+                backgroundColor={footerSurfaceColor}
+              />
+            ) : null}
+
+            <ChatComposer
+              embedded
+              input={input}
+              onChangeText={setInput}
+              onSend={() => void sendMessage(input)}
+              onPickAttachment={() => void pickAttachment()}
+              onToggleVoice={() => void voice.toggleRecording()}
+              onStopVoice={() => void stopSpeaking().then(() => voice.interrupt())}
+              canSend={canSend}
+              isSending={isSending}
+              voicePhase={voice.phase}
+              paddingBottom={0}
+            />
+          </View>
+        </View>
+      </View>
     </View>
   )
 }

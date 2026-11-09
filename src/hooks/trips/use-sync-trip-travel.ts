@@ -3,7 +3,11 @@ import { useQueryClient } from '@tanstack/react-query'
 
 import { useRoutePolicy } from '@/hooks/trips/use-route-policy'
 import { tripKeys } from '@/services/trips/trip-keys'
-import { searchAndCacheFlights, searchAndCacheHotels } from '@/services/travel/travel-api'
+import {
+  searchAndCacheFlights,
+  searchAndCacheHotels,
+  syncTripDestination,
+} from '@/services/travel/travel-api'
 import type { TripRow } from '@/types/database'
 import { useTripFlightsQuery, useTripHotelsQuery } from '@/hooks/trips/use-trip-query'
 import {
@@ -19,6 +23,7 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
   const { data: hotels, isLoading: hotelsLoading } = useTripHotelsQuery(tripId)
   const { data: flights, isLoading: flightsLoading } = useTripFlightsQuery(tripId)
   const { data: routePolicy } = useRoutePolicy(trip)
+  const geocodeAttempted = useRef(false)
   const hotelsAttempted = useRef(false)
   const flightsAttempted = useRef(false)
   const [hotelsSyncing, setHotelsSyncing] = useState(false)
@@ -27,6 +32,7 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
   const includeFlights = routePolicy?.includeFlights ?? true
 
   useEffect(() => {
+    geocodeAttempted.current = false
     hotelsAttempted.current = false
     flightsAttempted.current = false
   }, [
@@ -40,6 +46,25 @@ export function useSyncTripTravel(trip: TripRow | null | undefined) {
     trip?.budget_usd,
     trip?.travelers,
   ])
+
+  useEffect(() => {
+    if (!trip?.id || !trip.destination?.trim()) return
+    const missingCoords =
+      trip.destination_lat == null ||
+      trip.destination_lon == null ||
+      !Number.isFinite(trip.destination_lat) ||
+      !Number.isFinite(trip.destination_lon)
+    if (!missingCoords || geocodeAttempted.current) return
+    geocodeAttempted.current = true
+
+    void syncTripDestination({ tripId: trip.id, destination: trip.destination })
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: tripKeys.detail(trip.id) })
+      })
+      .catch(() => {
+        geocodeAttempted.current = false
+      })
+  }, [trip?.id, trip?.destination, trip?.destination_lat, trip?.destination_lon, queryClient])
 
   useEffect(() => {
     if (!trip?.id) return

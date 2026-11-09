@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from 'react-native'
+import { Platform, Pressable, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Plus, Sparkles } from 'lucide-react-native'
 import { LinearGradient } from 'expo-linear-gradient'
@@ -20,84 +20,136 @@ type Props = {
 export function ChatHeader({ title, subtitle, onNewChat, disabled }: Props) {
   const theme = useThemedStyles()
   const insets = useSafeAreaInsets()
-  const { scaleFont, horizontalPadding } = useResponsive()
+  const { scaleFont, horizontalPadding, isSmallPhone } = useResponsive()
+
+  const headerText = theme.isDark ? theme.colors.text : brand.onPrimary
+  const headerMuted = theme.isDark ? theme.colors.textMuted : 'rgba(255,255,255,0.78)'
+  const iconBg = theme.isDark ? theme.colors.aiMuted : 'rgba(255,255,255,0.16)'
+  const iconColor = theme.isDark ? brand.ai : brand.onPrimary
+  const newBtnBg = theme.isDark ? theme.colors.muted : 'rgba(255,255,255,0.14)'
+  const newBtnBorder = theme.isDark ? theme.colors.border : 'rgba(255,255,255,0.28)'
+  const newBtnPressed = theme.isDark ? theme.colors.cardElevated : 'rgba(255,255,255,0.22)'
+
+  const shellStyle = {
+    paddingTop: Math.max(insets.top, Platform.OS === 'android' ? 6 : 8) + spacing.sm,
+    paddingHorizontal: horizontalPadding,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.isDark ? theme.colors.border : 'rgba(255,255,255,0.12)',
+  } as const
+
+  const content = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+      <View
+        style={{
+          width: isSmallPhone ? 40 : 44,
+          height: isSmallPhone ? 40 : 44,
+          borderRadius: radii.pill,
+          backgroundColor: iconBg,
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <Sparkles size={isSmallPhone ? 20 : 22} color={iconColor} />
+      </View>
+
+      <View style={{ flex: 1, minWidth: 0, justifyContent: 'center', paddingRight: spacing.xs }}>
+        <Text
+          style={textWithWeight(typography.h2, '700', {
+            color: headerText,
+            fontSize: scaleFont(isSmallPhone ? 17 : 18),
+            letterSpacing: -0.3,
+          })}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {title}
+        </Text>
+        <Text
+          style={{
+            ...typography.caption,
+            color: headerMuted,
+            marginTop: 2,
+            fontSize: scaleFont(12),
+          }}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {subtitle ?? 'Live weather · hotels · itineraries'}
+        </Text>
+      </View>
+
+      <Pressable
+        onPress={onNewChat}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel="New chat"
+        hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+        style={{ flexShrink: 0, flexGrow: 0, opacity: disabled ? 0.5 : 1 }}
+      >
+        {({ pressed }) => (
+          <View
+            style={{
+              flexDirection: 'row',
+              flexWrap: 'nowrap',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: isSmallPhone ? 68 : 72,
+              minHeight: 36,
+              paddingHorizontal: isSmallPhone ? 10 : spacing.md,
+              paddingVertical: spacing.sm,
+              borderRadius: radii.pill,
+              backgroundColor: pressed ? newBtnPressed : newBtnBg,
+              borderWidth: 1,
+              borderColor: newBtnBorder,
+            }}
+          >
+            <View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
+              <Plus size={15} color={headerText} strokeWidth={2.5} />
+            </View>
+            <Text
+              style={textWithWeight(typography.caption, '700', {
+                color: headerText,
+                fontSize: scaleFont(13),
+                lineHeight: 16,
+                marginLeft: 5,
+                flexShrink: 0,
+              })}
+              numberOfLines={1}
+              allowFontScaling={false}
+            >
+              New
+            </Text>
+          </View>
+        )}
+      </Pressable>
+    </View>
+  )
+
+  if (theme.isDark) {
+    return (
+      <View
+        style={[
+          shellStyle,
+          {
+            backgroundColor: theme.colors.card,
+          },
+        ]}
+      >
+        {content}
+      </View>
+    )
+  }
 
   return (
     <LinearGradient
-      colors={
-        theme.isDark
-          ? [theme.colors.card, theme.colors.background]
-          : [brand.primary, brand.primaryDark]
-      }
+      colors={[brand.primary, brand.primaryDark]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
-      style={{
-        paddingTop: Math.max(insets.top, 8) + spacing.sm,
-        paddingHorizontal: horizontalPadding,
-        paddingBottom: spacing.lg,
-      }}
+      style={shellStyle}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-        <View
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: radii.pill,
-            backgroundColor: 'rgba(255,255,255,0.16)',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <Sparkles size={22} color={brand.onPrimary} />
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text
-            style={textWithWeight(typography.h2, '700', {
-              color: brand.onPrimary,
-              fontSize: scaleFont(18),
-            })}
-            numberOfLines={1}
-          >
-            {title}
-          </Text>
-          <Text
-            style={{
-              ...typography.caption,
-              color: 'rgba(255,255,255,0.82)',
-              marginTop: 2,
-            }}
-            numberOfLines={1}
-          >
-            {subtitle ?? 'Live weather · hotels · itineraries'}
-          </Text>
-        </View>
-        <Pressable
-          onPress={onNewChat}
-          disabled={disabled}
-          accessibilityLabel="New chat"
-          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-          style={({ pressed }) => ({
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            minHeight: 40,
-            paddingHorizontal: spacing.md,
-            paddingVertical: spacing.sm,
-            borderRadius: radii.pill,
-            backgroundColor: pressed ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.14)',
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.28)',
-            opacity: disabled ? 0.5 : 1,
-            flexShrink: 0,
-          })}
-        >
-          <Plus size={18} color={brand.onPrimary} strokeWidth={2.5} />
-          <Text style={textWithWeight(typography.caption, '700', { color: brand.onPrimary })}>
-            New
-          </Text>
-        </Pressable>
-      </View>
+      {content}
     </LinearGradient>
   )
 }

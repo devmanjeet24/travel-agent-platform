@@ -51,11 +51,19 @@ function formatCurrency(amount: number, currency: string): string {
   }
 }
 
+export function isDuffelFlightRaw(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false
+  const r = raw as { source?: string; duffelOfferId?: string }
+  return r.source === 'duffel' && Boolean(r.duffelOfferId)
+}
+
 export function flightPriceLabel(raw: unknown, fallbackInr?: number | null): string {
+  if (!isDuffelFlightRaw(raw)) return 'Live fare unavailable'
   const r = parseFlightRaw(raw)
   const currency = (r?.priceCurrency ?? r?.totalCurrency)?.trim().toUpperCase()
   const amount = parseMoneyAmount(r?.priceAmount ?? r?.totalAmount)
   if (currency && amount != null) return formatCurrency(amount, currency)
-  if (fallbackInr != null) return formatCurrency(fallbackInr, 'INR')
+  const fallbackCurrency = currency ?? 'INR'
+  if (fallbackInr != null) return formatCurrency(fallbackInr, fallbackCurrency)
   return '—'
 }

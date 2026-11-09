@@ -1,10 +1,17 @@
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native'
+import {
+  KeyboardAvoidingView,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  View,
+} from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import type { ReactNode } from 'react'
 
 import { useResponsive } from '@/hooks/use-responsive'
 import { useKeyboardBottomInset } from '@/hooks/use-keyboard-bottom-inset'
 import { useTabScreenInsets } from '@/hooks/use-tab-screen-insets'
+import { brand } from '@/constants/design'
 import { useThemedStyles } from '@/hooks/use-themed-styles'
 
 type SafeAreaEdge = 'top' | 'bottom' | 'left' | 'right'
@@ -20,6 +27,8 @@ interface Props {
   keyboardAvoiding?: boolean
   keyboardVerticalOffset?: number
   subtleBackground?: boolean
+  refreshing?: boolean
+  onRefresh?: () => void
 }
 
 export default function ScreenWrapper({
@@ -32,6 +41,8 @@ export default function ScreenWrapper({
   scrollFlexGrow = false,
   keyboardAvoiding,
   keyboardVerticalOffset = 0,
+  refreshing,
+  onRefresh,
 }: Props) {
   const avoidKeyboard = keyboardAvoiding ?? (scroll && Platform.OS === 'ios')
   const theme = useThemedStyles()
@@ -77,6 +88,16 @@ export default function ScreenWrapper({
       removeClippedSubviews={false}
       showsVerticalScrollIndicator={false}
       overScrollMode="never"
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl
+            refreshing={refreshing ?? false}
+            onRefresh={onRefresh}
+            tintColor={brand.primaryDark}
+            colors={[brand.primaryDark]}
+          />
+        ) : undefined
+      }
     >
       {inner}
     </ScrollView>

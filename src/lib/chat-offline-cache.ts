@@ -68,3 +68,9 @@ export async function clearChatOfflineCache(): Promise<void> {
     await AsyncStorage.multiRemove(chatKeys);
   }
 }
+
+/** Clears the "resume latest chat" pointer so a new chat does not reload the previous thread. */
+export async function clearLatestChatSessionPointer(tripId?: string): Promise<void> {
+  if (!isOfflineSyncEnabled()) return;
+  await AsyncStorage.removeItem(latestKey(tripId));
+}

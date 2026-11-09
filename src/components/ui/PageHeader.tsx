@@ -32,7 +32,7 @@ export function PageHeader({
 
   const handleBack = () => {
     if (router.canGoBack()) router.back()
-    else router.replace('/(tabs)/index')
+    else router.replace('/(tabs)')
   }
 
   return (

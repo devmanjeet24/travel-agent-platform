@@ -19,8 +19,10 @@ import {
   searchPlaces,
   type PlaceOffer,
 } from '../_shared/travel-apis.ts';
+import { fetchGroqWith429Retry } from '../_shared/groq-fetch.ts';
 import { logGroqUsage } from '../_shared/groq-usage.ts';
 import { createServiceSupabase, sendExpoPushToUser } from '../_shared/expo-push.ts';
+import { insertTripActivityNotifications } from '../_shared/trip-notifications.ts';
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL_70B = 'llama-3.3-70b-versatile';
@@ -224,23 +226,27 @@ ${travelContext}`;
       1_200 + tripDays * 200,
     );
 
-    const groqRes = await fetchWithTimeout(GROQ_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${groqKey}`,
-        'Content-Type': 'application/json',
+    const groqRes = await fetchGroqWith429Retry(
+      GROQ_URL,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${groqKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: plannerModel,
+          messages: [
+            { role: 'system', content: PLAN_SYSTEM_PROMPT },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.4,
+          max_tokens: plannerMaxTokens,
+          response_format: { type: 'json_object' },
+        }),
       },
-      body: JSON.stringify({
-        model: plannerModel,
-        messages: [
-          { role: 'system', content: PLAN_SYSTEM_PROMPT },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.4,
-        max_tokens: plannerMaxTokens,
-        response_format: { type: 'json_object' },
-      }),
-    }, GROQ_TIMEOUT_MS);
+      (url, init) => fetchWithTimeout(url, init, GROQ_TIMEOUT_MS),
+    );
 
     const groqData = await groqRes.json().catch(() => null);
     logGroqUsage('plan_trip', (groqData ?? {}) as Record<string, unknown>, plannerModel, {
@@ -519,6 +525,14 @@ ${travelContext}`;
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id);
+
+    await insertTripActivityNotifications(supabase, {
+      userId: user.id,
+      tripId: trip.id,
+      destination: trip.destination,
+      startDate: trip.start_date,
+      kinds: ['trip_saved', 'itinerary_generated', 'budget_generated', 'packing_generated'],
+    });
 
     const pushAdmin = createServiceSupabase();
     if (pushAdmin) {

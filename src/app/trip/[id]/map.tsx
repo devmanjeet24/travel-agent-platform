@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Text, View } from 'react-native'
+import { View } from 'react-native'
 import { useLocalSearchParams } from 'expo-router'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -7,8 +7,10 @@ import {
   AttractionRow,
   TripMap,
 } from '@/components/maps/TripMap'
+import { TripPlanPending } from '@/components/trip/TripPlanPending'
 import TripScreenWrapper from '@/components/trip/TripScreenWrapper'
 import { useTripItineraryQuery, useTripQuery } from '@/hooks/trips/use-trip-query'
+import { useTripPlan } from '@/providers/trip-plan-provider'
 import type { TripAttraction } from '@/constants/trip-attractions'
 import { isValidCoordinate, sanitizeMapRegion } from '@/lib/map-coordinates'
 import { itineraryToAttractions, regionFromAttractions } from '@/utils/itinerary-map'
@@ -95,6 +97,7 @@ export default function MapScreen() {
   const [focusedAttractionId, setFocusedAttractionId] = useState<string | null>(null)
   const { data: trip } = useTripQuery(id)
   const { data: itinerary, isLoading } = useTripItineraryQuery(id)
+  const { needsPlan, isPlanning, queriesLoading, planError, retryPlan } = useTripPlan()
 
   const fromItinerary = useMemo(
     () => (itinerary ? itineraryToAttractions(itinerary) : []),
@@ -193,21 +196,21 @@ export default function MapScreen() {
     [attractions, destinationAttractions],
   )
 
-  if (isLoading) {
-    return (
-      <TripScreenWrapper scroll={false} centered className={theme.bg}>
-        <ActivityIndicator color={brand.primaryDark} />
-      </TripScreenWrapper>
-    )
+  if (isLoading || queriesLoading || (needsPlan && isPlanning)) {
+    return <TripPlanPending />
+  }
+
+  if (needsPlan && planError) {
+    return <TripPlanPending error={planError} onRetry={retryPlan} />
   }
 
   if (!attractions.length) {
     return (
-      <TripScreenWrapper centered className={theme.bg}>
-        <Text className={`${theme.textMuted} text-center leading-6`}>
-          No map points yet. Regenerate your AI plan or open a trip with a geocoded destination.
-        </Text>
-      </TripScreenWrapper>
+      <TripPlanPending
+        title="Preparing map…"
+        subtitle="Geocoding your destination and itinerary activities."
+        onRetry={retryPlan}
+      />
     )
   }
 

@@ -27,6 +27,7 @@ export async function sendChatMessage(
       message: variables.message,
       history: variables.history,
       conversationId: variables.conversationId,
+      clientRequestId: variables.clientRequestId,
       tripId: variables.tripId,
       attachments: variables.attachments,
       tripContext: variables.tripContext,
@@ -57,6 +58,7 @@ export async function sendChatMessage(
     warning: parsed.warning,
     tripId: parsed.tripId,
     openTripId: parsed.openTripId,
+    effects: parsed.effects,
   };
 }
 

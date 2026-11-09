@@ -210,7 +210,7 @@ function mapDuffelOffer(
     route,
     departTime,
     arriveTime: `${arriveTime}${dayOffsetLabel(departingAt, arrivingAt)}`,
-    priceUsd: totalCurrency === 'INR' ? totalAmount : null,
+    priceUsd: totalAmount,
     stops: stopLabel(segments),
     source: 'duffel',
     raw: {
